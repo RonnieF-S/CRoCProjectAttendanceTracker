@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Build Session Attendance</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f7f7f7;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    p {
+      color: #444;
+    }
+
+    .card {
+      background: white;
+      border-radius: 10px;
+      padding: 16px;
+      margin: 16px 0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    video {
+      width: 100%;
+      max-width: 520px;
+      background: black;
+      border-radius: 8px;
+    }
+
+    input, button {
+      font-size: 16px;
+      padding: 10px;
+      margin-top: 8px;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    button {
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
+    #status {
+      margin-top: 12px;
+      font-weight: bold;
+      min-height: 24px;
+    }
+
+    .muted {
+      color: #666;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Build Session Attendance</h1>
+  <p>Scan a student card barcode or enter the student number manually.</p>
+
+  <div class="card">
+    <h2>Barcode Scanner</h2>
+    <video id="video" autoplay playsinline></video><br>
+    <button id="startBtn">Start Camera</button>
+    <button id="stopBtn">Stop Camera</button>
+    <div class="muted">Best used in Chrome on a phone or laptop.</div>
+  </div>
+
+  <div class="card">
+    <h2>Manual Entry</h2>
+    <input id="studentNumber" type="text" placeholder="Enter student number">
+    <button id="manualBtn">Sign In Manually</button>
+  </div>
+
+  <div class="card">
+    <h2>Status</h2>
+    <div id="status">Ready.</div>
+  </div>
+
+  <script>
+    const APPS_SCRIPT_URL = "YOUR_APPS_SCRIPT_URL_HERE";
+
+    const video = document.getElementById("video");
+    const statusEl = document.getElementById("status");
+    const studentInput = document.getElementById("studentNumber");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const manualBtn = document.getElementById("manualBtn");
+
+    let stream = null;
+    let scanning = false;
+    let detector = null;
+    let scanInterval = null;
+    let lastScannedValue = "";
+    let lastScannedTime = 0;
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function jsonpRequest(params) {
+      return new Promise((resolve, reject) => {
+        const callbackName = "jsonp_cb_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
+        const script = document.createElement("script");
+
+        params.callback = callbackName;
+
+        const query = new URLSearchParams(params).toString();
+        const url = `${APPS_SCRIPT_URL}?${query}`;
+
+        window[callbackName] = function(response) {
+          resolve(response);
+          cleanup();
+        };
+
+        script.onerror = function() {
+          reject(new Error("Request failed."));
+          cleanup();
+        };
+
+        function cleanup() {
+          delete window[callbackName];
+          if (script.parentNode) {
+            script.parentNode.removeChild(script);
+          }
+        }
+
+        script.src = url;
+        document.body.appendChild(script);
+      });
+    }
+
+    async function submitStudent(studentNumber, method) {
+      try {
+        setStatus(`Saving ${studentNumber}...`);
+
+        const result = await jsonpRequest({
+          action: "signin",
+          studentNumber: studentNumber,
+          method: method
+        });
+
+        if (result.success) {
+          setStatus(`${result.message} | Session: ${result.session}`);
+        } else {
+          setStatus(`Error: ${result.message}`);
+        }
+      } catch (err) {
+        setStatus(`Error: ${err.message}`);
+      }
+    }
+
+    async function startScanner() {
+      if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
+        setStatus("Camera access is not supported in this browser.");
+        return;
+      }
+
+      if (!("BarcodeDetector" in window)) {
+        setStatus("Barcode scanning is not supported in this browser. Use manual entry.");
+        return;
+      }
+
+      try {
+        const formats = await BarcodeDetector.getSupportedFormats();
+        detector = new BarcodeDetector({
+          formats: formats.includes("code_128")
+            ? ["code_128", "ean_13", "ean_8", "qr_code"]
+            : formats
+        });
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        scanning = true;
+        setStatus("Camera started. Point it at the student card barcode.");
+
+        scanInterval = setInterval(scanFrame, 500);
+      } catch (err) {
+        setStatus(`Could not start camera: ${err.message}`);
+      }
+    }
+
+    async function scanFrame() {
+      if (!scanning || !detector) return;
+      if (video.readyState < 2) return;
+
+      try {
+        const barcodes = await detector.detect(video);
+
+        if (!barcodes.length) return;
+
+        const rawValue = (barcodes[0].rawValue || "").trim();
+        if (!rawValue) return;
+
+        const now = Date.now();
+        if (rawValue === lastScannedValue && now - lastScannedTime < 3000) {
+          return;
+        }
+
+        lastScannedValue = rawValue;
+        lastScannedTime = now;
+
+        await submitStudent(rawValue, "barcode");
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function stopScanner() {
+      scanning = false;
+
+      if (scanInterval) {
+        clearInterval(scanInterval);
+        scanInterval = null;
+      }
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      video.srcObject = null;
+      setStatus("Camera stopped.");
+    }
+
+    function submitManual() {
+      const value = studentInput.value.trim();
+
+      if (!value) {
+        setStatus("Please enter a student number.");
+        return;
+      }
+
+      submitStudent(value, "manual");
+      studentInput.value = "";
+    }
+
+    startBtn.addEventListener("click", startScanner);
+    stopBtn.addEventListener("click", stopScanner);
+    manualBtn.addEventListener("click", submitManual);
+
+    studentInput.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        submitManual();
+      }
+    });
+  </script>
+</body>
+</html>
