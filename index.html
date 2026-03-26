@@ -205,6 +205,23 @@
       margin: 0;
     }
 
+    .auth-row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    .auth-status {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
     @media (max-width: 900px) {
       body {
         padding: 16px;
@@ -223,6 +240,15 @@
 <body>
   <h1 id="pageTitle">Project Attendance</h1>
   <p>Scan a student card barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
+
+  <div class="card">
+    <h2>Sign In</h2>
+    <div class="auth-row">
+      <div id="googleSignInButton"></div>
+      <button id="signOutBtn" class="hidden" type="button">Sign Out</button>
+    </div>
+    <div id="authStatus" class="auth-status">Sign in with your Curtin Robotics Google account to use the tracker.</div>
+  </div>
 
   <div class="card status-panel">
     <h2>Sign-In Status</h2>
@@ -261,16 +287,22 @@
     </ul>
   </div>
 
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script>
     const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
+      googleClientId: "REPLACE_WITH_GOOGLE_CLIENT_ID",
+      allowedDomain: "curtinrobotics.org",
       duplicateCooldownMs: 3000,
-      recentLimit: 12
+      recentLimit: 12,
     };
 
     const el = {
       pageTitle: document.getElementById("pageTitle"),
+      googleSignInButton: document.getElementById("googleSignInButton"),
+      signOutBtn: document.getElementById("signOutBtn"),
+      authStatus: document.getElementById("authStatus"),
       reader: document.getElementById("reader"),
       statusBanner: document.getElementById("statusBanner"),
       statusMessage: document.getElementById("statusMessage"),
@@ -292,10 +324,25 @@
       currentSessionName: "",
       keyboardBuffer: "",
       keyboardTimer: null,
+      idToken: "",
+      signedInEmail: "",
       setProjectName(projectName) {
         const name = projectName || "Project";
         document.title = `${name} Attendance`;
         el.pageTitle.textContent = `${name} Attendance`;
+      },
+      setAuthState(isAuthenticated, email = "") {
+        this.signedInEmail = email;
+        el.studentInput.disabled = !isAuthenticated;
+        el.manualBtn.disabled = !isAuthenticated;
+        el.startBtn.disabled = !isAuthenticated;
+        if (!isAuthenticated) {
+          this.stopScanner();
+        }
+        el.signOutBtn.classList.toggle("hidden", !isAuthenticated);
+        el.authStatus.textContent = isAuthenticated
+          ? `Signed in as ${email}`
+          : "Sign in with your Curtin Robotics Google account to use the tracker.";
       },
       setStatus(message, detail = "", type = "") {
         el.statusBanner.className = `status-banner ${type}`.trim();
@@ -345,9 +392,13 @@
       },
       request(params) {
         return new Promise((resolve, reject) => {
+          if (!this.idToken) {
+            reject(new Error("Please sign in with your Curtin Robotics Google account."));
+            return;
+          }
           const callbackName = `jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
           const script = document.createElement("script");
-          const query = new URLSearchParams({ ...params, callback: callbackName }).toString();
+          const query = new URLSearchParams({ ...params, idToken: this.idToken, callback: callbackName }).toString();
           window[callbackName] = function(response) {
             cleanup();
             resolve(response);
@@ -387,6 +438,10 @@
         throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
       },
       async startScanner() {
+        if (!this.idToken) {
+          this.setStatus("Authentication required", "Sign in with your Curtin Robotics Google account first.", "error");
+          return;
+        }
         if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
           this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
           return;
@@ -508,6 +563,9 @@
         el.studentInput.focus();
       },
       handleKeyboardScanner(event) {
+        if (!this.idToken) {
+          return;
+        }
         if (event.ctrlKey || event.metaKey || event.altKey) {
           return;
         }
@@ -583,6 +641,10 @@
         }
       },
       submitManual() {
+        if (!this.idToken) {
+          this.setStatus("Authentication required", "Sign in with your Curtin Robotics Google account first.", "error");
+          return;
+        }
         const value = el.studentInput.value.trim();
         if (!value) {
           this.setStatus("No value entered", "Please enter a student number or barcode.", "error");
@@ -592,10 +654,76 @@
         el.studentInput.value = "";
         this.focusInput();
       },
+      initializeGoogleSignIn() {
+        if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+          el.authStatus.textContent = "Google sign-in could not be loaded.";
+          return;
+        }
+        if (!CONFIG.googleClientId || CONFIG.googleClientId === "REPLACE_WITH_GOOGLE_CLIENT_ID") {
+          el.authStatus.textContent = "Frontend Google sign-in is not configured.";
+          return;
+        }
+
+        window.google.accounts.id.initialize({
+          client_id: CONFIG.googleClientId,
+          callback: (response) => this.handleGoogleCredential(response),
+          hd: CONFIG.allowedDomain,
+          ux_mode: "popup",
+        });
+
+        window.google.accounts.id.renderButton(el.googleSignInButton, {
+          theme: "outline",
+          size: "large",
+          text: "signin_with",
+          shape: "rectangular",
+        });
+      },
+      handleGoogleCredential(response) {
+        try {
+          const credential = response && response.credential ? response.credential : "";
+          const claims = this.parseJwtClaims(credential);
+          const email = String(claims.email || "").toLowerCase();
+          const domain = String(claims.hd || "").toLowerCase();
+
+          if (!credential || !email) {
+            throw new Error("Google sign-in did not return a valid account.");
+          }
+          if (domain !== CONFIG.allowedDomain || !email.endsWith(`@${CONFIG.allowedDomain}`)) {
+            throw new Error(`Please sign in with your @${CONFIG.allowedDomain} account.`);
+          }
+
+          this.idToken = credential;
+          this.setAuthState(true, email);
+          this.loadConfig();
+          this.refreshSessionStatus();
+        } catch (error) {
+          this.idToken = "";
+          this.setAuthState(false);
+          this.setStatus("Authentication failed", error.message, "error");
+        }
+      },
+      parseJwtClaims(token) {
+        const parts = String(token || "").split(".");
+        if (parts.length < 2) {
+          throw new Error("Google sign-in token is invalid.");
+        }
+        const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const normalized = payload + "=".repeat((4 - (payload.length % 4)) % 4);
+        return JSON.parse(atob(normalized));
+      },
+      signOut() {
+        this.idToken = "";
+        this.setAuthState(false);
+        this.setStatus("Signed out", "Sign in again to use the tracker.");
+        if (window.google && window.google.accounts && window.google.accounts.id) {
+          window.google.accounts.id.disableAutoSelect();
+        }
+      },
       bind() {
         el.startBtn.addEventListener("click", () => this.startScanner());
         el.stopBtn.addEventListener("click", () => this.stopScanner());
         el.manualBtn.addEventListener("click", () => this.submitManual());
+        el.signOutBtn.addEventListener("click", () => this.signOut());
         el.studentInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             this.submitManual();
@@ -604,10 +732,10 @@
         document.addEventListener("keydown", (event) => this.handleKeyboardScanner(event));
       },
       async start() {
-        await this.loadConfig();
-        await this.refreshSessionStatus();
+        this.setAuthState(false);
         this.renderRecentSignIns();
         this.bind();
+        this.initializeGoogleSignIn();
         this.focusInput();
       }
     };
