@@ -216,6 +216,29 @@
       flex: 1 1 240px;
     }
 
+    .auth-message {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .auth-message.success {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+    }
+
+    .auth-message.error {
+      background: var(--error-bg);
+      border-color: var(--error-border);
+      color: var(--error-text);
+    }
+
     .hidden {
       display: none;
     }
@@ -239,13 +262,13 @@
   <h1 id="pageTitle">Project Attendance</h1>
   <p>Scan a student card barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
 
-  <div class="card">
+  <div id="accessCard" class="card">
     <h2>Access</h2>
     <div class="auth-row">
       <input id="passwordInput" type="password" placeholder="Enter access password">
       <button id="unlockBtn" type="button">Unlock</button>
     </div>
-    <div id="authMessage" class="muted">Enter the attendance password before scanning or signing in manually.</div>
+    <div id="authMessage" class="auth-message">Enter the attendance password before scanning or signing in manually.</div>
   </div>
 
   <div class="card status-panel">
@@ -295,6 +318,7 @@
 
     const el = {
       pageTitle: document.getElementById("pageTitle"),
+      accessCard: document.getElementById("accessCard"),
       passwordInput: document.getElementById("passwordInput"),
       unlockBtn: document.getElementById("unlockBtn"),
       authMessage: document.getElementById("authMessage"),
@@ -333,10 +357,12 @@
         el.startBtn.disabled = !unlocked;
         if (!unlocked) {
           this.stopScanner();
+          el.accessCard.classList.remove("hidden");
         }
-        el.authMessage.textContent = unlocked
-          ? "Access granted. Scanner and manual sign-in are enabled."
-          : "Enter the attendance password before scanning or signing in manually.";
+      },
+      setAuthMessage(message, type = "") {
+        el.authMessage.className = `auth-message ${type}`.trim();
+        el.authMessage.textContent = message;
       },
       setStatus(message, detail = "", type = "") {
         el.statusBanner.className = `status-banner ${type}`.trim();
@@ -652,6 +678,7 @@
         const password = el.passwordInput.value;
         if (!password) {
           this.setUnlocked(false);
+          this.setAuthMessage("Enter the attendance password first.", "error");
           this.setStatus("Password required", "Enter the attendance password first.", "error");
           return;
         }
@@ -665,12 +692,19 @@
           if (result.projectName) {
             this.setProjectName(result.projectName);
           }
-          this.setStatus("Unlocked", "Scanner and manual sign-in are ready.");
+          this.setAuthMessage("Access granted. You can now scan cards and record manual sign-ins.", "success");
+          this.setStatus("Unlocked", "Scanner and manual sign-in are ready.", "success");
           el.passwordInput.value = "";
+          window.setTimeout(() => {
+            if (this.unlocked) {
+              el.accessCard.classList.add("hidden");
+            }
+          }, 1200);
           this.focusInput();
         }).catch((error) => {
           this.password = "";
           this.setUnlocked(false);
+          this.setAuthMessage(error.message || "The password is incorrect.", "error");
           this.setStatus("Access denied", error.message || "The password is incorrect.", "error");
           el.passwordInput.select();
         });
@@ -694,6 +728,7 @@
       },
       async start() {
         this.setUnlocked(false);
+        this.setAuthMessage("Enter the attendance password before scanning or signing in manually.");
         this.renderRecentSignIns();
         this.bind();
         el.passwordInput.focus();
