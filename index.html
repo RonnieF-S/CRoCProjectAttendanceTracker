@@ -414,6 +414,29 @@
         el.sessionMessage.textContent = message;
         el.sessionDetail.textContent = detail;
       },
+      applySessionStatus(result) {
+        this.setProjectName(result.projectName);
+        this.currentSessionOpen = !!(result.sessionStatus && result.sessionStatus.isOpen);
+
+        if (result.sessionStatus && result.sessionStatus.currentSession) {
+          this.currentSessionName = result.sessionStatus.currentSession.sessionName || "";
+          const summary = this.sessionSummary(result.sessionStatus.currentSession);
+          this.setSessionInfo("Open now", summary, "open");
+          this.setStatus("Ready", summary);
+          return;
+        }
+
+        this.currentSessionName = "";
+        if (result.sessionStatus && result.sessionStatus.nextSession) {
+          const nextSummary = this.sessionSummary(result.sessionStatus.nextSession);
+          this.setSessionInfo("No session open", `Next session: ${nextSummary}`, "closed");
+          this.setStatus("No session open", `Next session: ${nextSummary}`);
+          return;
+        }
+
+        this.setSessionInfo("No session configured", "Add an active session in the Config tab.", "closed");
+        this.setStatus("Backend configuration error", "No active or upcoming sessions are configured.", "error");
+      },
       sessionDetail(result) {
         return [result.session || this.currentSessionName, result.sessionTimes, result.day].filter(Boolean).join(" • ");
       },
@@ -678,28 +701,7 @@
       },
       async refreshSessionStatus() {
         try {
-          const result = await this.request({ action: "session" });
-          this.setProjectName(result.projectName);
-          this.currentSessionOpen = !!(result.sessionStatus && result.sessionStatus.isOpen);
-
-          if (result.sessionStatus && result.sessionStatus.currentSession) {
-            this.currentSessionName = result.sessionStatus.currentSession.sessionName || "";
-            const summary = this.sessionSummary(result.sessionStatus.currentSession);
-            this.setSessionInfo("Open now", summary, "open");
-            this.setStatus("Ready", summary);
-            return;
-          }
-
-          this.currentSessionName = "";
-          if (result.sessionStatus && result.sessionStatus.nextSession) {
-            const nextSummary = this.sessionSummary(result.sessionStatus.nextSession);
-            this.setSessionInfo("No session open", `Next session: ${nextSummary}`, "closed");
-            this.setStatus("No session open", `Next session: ${nextSummary}`);
-            return;
-          }
-
-          this.setSessionInfo("No session configured", "Add an active session in the Config tab.", "closed");
-          this.setStatus("Backend configuration error", "No active or upcoming sessions are configured.", "error");
+          this.applySessionStatus(await this.request({ action: "session" }));
         } catch (error) {
           this.currentSessionName = "";
           this.currentSessionOpen = false;
@@ -755,13 +757,9 @@
             throw new Error(result.message || "The password is incorrect.");
           }
           this.setUnlocked(true);
-          if (result.projectName) {
-            this.setProjectName(result.projectName);
-          }
           this.setAuthMessage("Access granted. You can now scan cards and record manual sign-ins.", "success");
-          this.setStatus("Unlocked", "Scanner and manual sign-in are ready.", "success");
+          this.applySessionStatus(result);
           el.passwordInput.value = "";
-          this.refreshSessionStatus();
           window.setTimeout(() => {
             if (this.unlocked) {
               el.accessCard.classList.add("hidden");

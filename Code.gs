@@ -26,8 +26,13 @@ var CONFIG_HEADERS = [
   "Active",
 ];
 
+var CONFIG_CACHE_KEY = "configRows:v1";
+var CONFIG_CACHE_TTL_SECONDS = 30;
+var SHEETS_READY_CACHE_KEY = "sheetsReady:v1";
+var SHEETS_READY_CACHE_TTL_SECONDS = 300;
+
 function doGet(e) {
-  setupSpreadsheet();
+  ensureSpreadsheet_();
 
   var action = param_(e, "action");
   var callback = param_(e, "callback");
@@ -53,7 +58,11 @@ function doGet(e) {
 function handleAction_(action, e) {
   if (action === "verify") {
     verifyPassword_(param_(e, "password"));
-    return successPayload_();
+    return {
+      success: true,
+      projectName: getProjectName_(),
+      sessionStatus: getSessionStatus_(),
+    };
   }
 
   if (action === "signin") {
@@ -82,15 +91,18 @@ function handleAction_(action, e) {
 }
 
 function setupSpreadsheet() {
+  ensureSpreadsheet_(true);
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var configSheet = getOrCreateSheet_(ss, SHEETS.CONFIG, CONFIG_HEADERS);
-  var attendanceSheet = getOrCreateSheet_(ss, SHEETS.ATTENDANCE, ATTENDANCE_HEADERS);
+  var configSheet = ss.getSheetByName(SHEETS.CONFIG);
+  var attendanceSheet = ss.getSheetByName(SHEETS.ATTENDANCE);
 
   if (configSheet.getLastRow() === 1) {
     configSheet.getRange(2, 1, 2, CONFIG_HEADERS.length).setValues([
       ["Example Project", "CR0C", "Tuesday Build", "Tuesday", "17:00", "20:00", 3, true],
       ["Example Project", "CR0C", "Thursday Build", "Thursday", "18:00", "20:00", 2, true],
     ]);
+    clearConfigCache_();
   }
 
   return {
@@ -99,18 +111,32 @@ function setupSpreadsheet() {
   };
 }
 
+function ensureSpreadsheet_(force) {
+  var cache = CacheService.getScriptCache();
+  if (!force && cache.get(SHEETS_READY_CACHE_KEY)) {
+    return;
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var configSheet = getOrCreateSheet_(ss, SHEETS.CONFIG, CONFIG_HEADERS);
+  var attendanceSheet = getOrCreateSheet_(ss, SHEETS.ATTENDANCE, ATTENDANCE_HEADERS);
+  if (configSheet && attendanceSheet) {
+    cache.put(SHEETS_READY_CACHE_KEY, "1", SHEETS_READY_CACHE_TTL_SECONDS);
+  }
+}
+
 function cleanupAttendanceDuplicates() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ATTENDANCE);
   if (!sheet || sheet.getLastRow() <= 1) {
     return { removed: 0 };
   }
 
-  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
+  var rows = sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getValues();
   var seen = {};
   var duplicates = [];
 
   for (var i = 0; i < rows.length; i += 1) {
-    var key = [toDateText_(rows[i][1]), text_(rows[i][2]).toUpperCase(), text_(rows[i][4])].join("|");
+    var key = [toDateText_(rows[i][0]), text_(rows[i][1]).toUpperCase(), text_(rows[i][3])].join("|");
     if (seen[key]) {
       duplicates.push(i + 2);
     } else {
@@ -240,12 +266,35 @@ function getAccessPassword_() {
 }
 
 function getConfigRows_() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(CONFIG_CACHE_KEY);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   if (!sheet || sheet.getLastRow() <= 1) {
     return [];
   }
 
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG_HEADERS.length).getValues();
+  var rawRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG_HEADERS.length).getValues();
+  var rows = [];
+
+  for (var i = 0; i < rawRows.length; i += 1) {
+    rows.push([
+      text_(rawRows[i][0]),
+      text_(rawRows[i][1]),
+      text_(rawRows[i][2]),
+      text_(rawRows[i][3]),
+      toTimeText_(rawRows[i][4]),
+      toTimeText_(rawRows[i][5]),
+      text_(rawRows[i][6]),
+      text_(rawRows[i][7]),
+    ]);
+  }
+
+  cache.put(CONFIG_CACHE_KEY, JSON.stringify(rows), CONFIG_CACHE_TTL_SECONDS);
+  return rows;
 }
 
 function successPayload_() {
@@ -290,13 +339,13 @@ function findDuplicateRows_(sheet, dateText, identifier, sessionName) {
     return [];
   }
 
-  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
+  var rows = sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getValues();
   var matches = [];
 
   for (var i = 0; i < rows.length; i += 1) {
-    if (toDateText_(rows[i][1]) === dateText &&
-        text_(rows[i][2]).toUpperCase() === identifier &&
-        text_(rows[i][4]) === sessionName) {
+    if (toDateText_(rows[i][0]) === dateText &&
+        text_(rows[i][1]).toUpperCase() === identifier &&
+        text_(rows[i][3]) === sessionName) {
       matches.push(i + 2);
     }
   }
@@ -358,10 +407,23 @@ function getOrCreateSheet_(ss, name, headers) {
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
   }
 
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  sheet.setFrozenRows(1);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  } else {
+    var currentHeaders = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
+    if (currentHeaders.join("|") !== headers.join("|")) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+  }
+
+  if (sheet.getFrozenRows() !== 1) {
+    sheet.setFrozenRows(1);
+  }
   return sheet;
 }
 
@@ -435,6 +497,10 @@ function dayIndex_(dayName) {
     throw new Error("Invalid day name in Config: " + dayName);
   }
   return index;
+}
+
+function clearConfigCache_() {
+  CacheService.getScriptCache().remove(CONFIG_CACHE_KEY);
 }
 
 function param_(e, key) {
