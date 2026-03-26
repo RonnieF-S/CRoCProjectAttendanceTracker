@@ -279,13 +279,14 @@
 
     const app = {
       recentSignIns: [],
-      stream: null,
       scanning: false,
       codeReader: null,
       scannerControls: null,
       lastScannedValue: "",
       lastScannedTime: 0,
       currentSessionName: "",
+      keyboardBuffer: "",
+      keyboardTimer: null,
       setProjectName(projectName) {
         const name = projectName || "Project";
         document.title = `${name} Attendance`;
@@ -391,23 +392,7 @@
         }
         try {
           this.codeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
-          const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
-          const preferredDevice = this.pickBestCamera(devices);
-          const constraints = preferredDevice ? {
-            video: {
-              deviceId: { exact: preferredDevice.deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
-          } : {
-            video: {
-              facingMode: { ideal: "environment" },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            },
-            audio: false
-          };
+          const constraints = await this.buildCameraConstraints();
 
           this.scanning = true;
           this.setStatus(
@@ -427,15 +412,17 @@
               return;
             }
 
-            if (error &&
-                !(error instanceof window.ZXingBrowser.NotFoundException) &&
-                !(error instanceof window.ZXingBrowser.ChecksumException) &&
-                !(error instanceof window.ZXingBrowser.FormatException)) {
+            if (error && !this.isIgnorableScanError(error)) {
               console.error(error);
             }
           });
         } catch (error) {
-          this.setStatus("Camera unavailable", `Could not start camera: ${error.message}`, "error");
+          this.stopScanner();
+          this.setStatus(
+            "Camera unavailable",
+            `Could not start camera: ${error.message}. USB barcode scanner input and manual entry are still available.`,
+            "error"
+          );
         }
       },
       stopScanner() {
@@ -448,6 +435,7 @@
           this.codeReader.reset();
           this.codeReader = null;
         }
+        el.video.srcObject = null;
         this.setStatus("Camera stopped", "Manual entry is still available.");
       },
       async handleScan(rawValue) {
@@ -464,6 +452,42 @@
         this.lastScannedValue = value;
         this.lastScannedTime = now;
         await this.submit(value, "barcode");
+      },
+      async buildCameraConstraints() {
+        let devices = [];
+        try {
+          devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+        } catch (_error) {
+          devices = [];
+        }
+
+        const preferredDevice = this.pickBestCamera(devices);
+        if (preferredDevice) {
+          return {
+            video: {
+              deviceId: { exact: preferredDevice.deviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          };
+        }
+
+        return {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        };
+      },
+      isIgnorableScanError(error) {
+        if (!error) {
+          return true;
+        }
+        const name = String(error.name || "");
+        return name === "NotFoundException" || name === "ChecksumException" || name === "FormatException";
       },
       pickBestCamera(devices) {
         if (!devices || !devices.length) {
@@ -491,6 +515,42 @@
         }
 
         return score;
+      },
+      focusInput() {
+        el.studentInput.focus();
+      },
+      handleKeyboardScanner(event) {
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+          return;
+        }
+        if (event.key === "Enter") {
+          const value = this.keyboardBuffer.trim();
+          this.clearKeyboardBuffer();
+          if (value) {
+            this.submit(value, "barcode");
+            event.preventDefault();
+          }
+          return;
+        }
+        if (event.key.length !== 1) {
+          return;
+        }
+        const tagName = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : "";
+        if (tagName === "input" || tagName === "textarea") {
+          return;
+        }
+        this.keyboardBuffer += event.key;
+        if (this.keyboardTimer) {
+          clearTimeout(this.keyboardTimer);
+        }
+        this.keyboardTimer = window.setTimeout(() => this.clearKeyboardBuffer(), 250);
+      },
+      clearKeyboardBuffer() {
+        this.keyboardBuffer = "";
+        if (this.keyboardTimer) {
+          clearTimeout(this.keyboardTimer);
+          this.keyboardTimer = null;
+        }
       },
       async loadConfig() {
         try {
@@ -542,6 +602,7 @@
         }
         this.submit(value, "manual");
         el.studentInput.value = "";
+        this.focusInput();
       },
       bind() {
         el.startBtn.addEventListener("click", () => this.startScanner());
@@ -552,12 +613,14 @@
             this.submitManual();
           }
         });
+        document.addEventListener("keydown", (event) => this.handleKeyboardScanner(event));
       },
       async start() {
         await this.loadConfig();
         await this.refreshSessionStatus();
         this.renderRecentSignIns();
         this.bind();
+        this.focusInput();
       }
     };
 
