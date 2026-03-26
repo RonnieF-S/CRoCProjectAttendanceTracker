@@ -61,9 +61,11 @@
       align-items: start;
     }
 
-    .stack {
+    .top-layout {
       display: grid;
-      gap: 14px;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.9fr);
+      gap: 20px;
+      align-items: start;
     }
 
     #reader {
@@ -118,10 +120,32 @@
 
     .manual-panel h2,
     .scan-panel h2,
+    .session-panel h2,
     .status-panel h2,
     .history-panel h2 {
       margin-top: 0;
       margin-bottom: 8px;
+    }
+
+    .session-banner {
+      border-radius: 16px;
+      border: 2px solid var(--border);
+      padding: 16px 18px;
+      display: grid;
+      gap: 6px;
+      background: #f8fafc;
+    }
+
+    .session-banner.open {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+    }
+
+    .session-banner.closed {
+      background: #eef6ff;
+      border-color: #60a5fa;
+      color: #1d4ed8;
     }
 
     .status-banner {
@@ -248,6 +272,7 @@
         padding: 16px;
       }
 
+      .top-layout,
       .scanner-layout {
         grid-template-columns: 1fr;
       }
@@ -271,18 +296,29 @@
     <div id="authMessage" class="auth-message">Enter the attendance password before scanning or signing in manually.</div>
   </div>
 
-  <div class="card status-panel">
-    <h2>Sign-In Status</h2>
-    <div id="statusBanner" class="status-banner">
-      <div class="status-label">Scanner status</div>
-      <div id="statusMessage" class="status-message">Ready.</div>
-      <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+  <div class="top-layout">
+    <div class="card status-panel">
+      <h2>Sign-In Status</h2>
+      <div id="statusBanner" class="status-banner">
+        <div class="status-label">Scanner status</div>
+        <div id="statusMessage" class="status-message">Ready.</div>
+        <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+      </div>
+    </div>
+
+    <div class="card session-panel">
+      <h2>Current Session</h2>
+      <div id="sessionBanner" class="session-banner">
+        <div class="status-label">Session status</div>
+        <div id="sessionMessage" class="status-message">Locked</div>
+        <div id="sessionDetail" class="status-detail">Enter the attendance password to load session details.</div>
+      </div>
     </div>
   </div>
 
   <div class="scanner-layout">
     <div class="card scan-panel">
-      <h2>Barcode Scanner</h2>
+      <h2>Student Card Barcode Scanner</h2>
       <div id="reader"></div>
       <div class="button-row">
         <button id="startBtn">Start Camera</button>
@@ -296,7 +332,7 @@
         <h2>Manual Entry</h2>
         <p class="muted">Use this if the barcode cannot be read.</p>
       </div>
-      <input id="studentNumber" type="text" placeholder="Enter barcode, student ID, or staff ID">
+      <input id="studentNumber" type="text" placeholder="Enter student ID">
       <button id="manualBtn">Sign In Manually</button>
     </div>
   </div>
@@ -326,6 +362,9 @@
       statusBanner: document.getElementById("statusBanner"),
       statusMessage: document.getElementById("statusMessage"),
       statusDetail: document.getElementById("statusDetail"),
+      sessionBanner: document.getElementById("sessionBanner"),
+      sessionMessage: document.getElementById("sessionMessage"),
+      sessionDetail: document.getElementById("sessionDetail"),
       studentInput: document.getElementById("studentNumber"),
       startBtn: document.getElementById("startBtn"),
       stopBtn: document.getElementById("stopBtn"),
@@ -341,6 +380,7 @@
       lastScannedValue: "",
       lastScannedTime: 0,
       currentSessionName: "",
+      currentSessionOpen: false,
       keyboardBuffer: "",
       keyboardTimer: null,
       unlocked: false,
@@ -369,8 +409,18 @@
         el.statusMessage.textContent = message;
         el.statusDetail.textContent = detail;
       },
+      setSessionInfo(message, detail = "", type = "") {
+        el.sessionBanner.className = `session-banner ${type}`.trim();
+        el.sessionMessage.textContent = message;
+        el.sessionDetail.textContent = detail;
+      },
       sessionDetail(result) {
         return [result.session || this.currentSessionName, result.sessionTimes, result.day].filter(Boolean).join(" • ");
+      },
+      sessionSummary(session) {
+        return session
+          ? [session.sessionName, session.sessionTimes, session.day].filter(Boolean).join(" • ")
+          : "";
       },
       addRecent(identifier, memberType, method, sessionName) {
         this.recentSignIns.unshift({
@@ -410,9 +460,9 @@
           el.recentList.appendChild(item);
         });
       },
-      request(params) {
+      request(params, requirePassword = true) {
         return new Promise((resolve, reject) => {
-          if (!this.password) {
+          if (requirePassword && !this.password) {
             reject(new Error("Enter the attendance password before signing people in."));
             return;
           }
@@ -540,11 +590,7 @@
         await this.submit(value, "barcode");
       },
       async buildCameraOptions() {
-        const config = {
-          fps: 10,
-          qrbox: { width: 420, height: 180 },
-          aspectRatio: 1.7777778
-        };
+        const config = this.cameraConfig();
 
         if (this.isMobileDevice()) {
           return [
@@ -572,6 +618,13 @@
           { camera: { facingMode: "environment" }, config: config },
           { camera: { facingMode: "user" }, config: config }
         ];
+      },
+      cameraConfig() {
+        return {
+          fps: 10,
+          qrbox: { width: 420, height: 180 },
+          aspectRatio: 1.7777778
+        };
       },
       isMobileDevice() {
         return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
@@ -626,14 +679,31 @@
       async refreshSessionStatus() {
         try {
           const result = await this.request({ action: "session" });
-          if (!result.success || !result.session) {
-            throw new Error(result.message || "No active session matches the current day and time.");
-          }
           this.setProjectName(result.projectName);
-          this.currentSessionName = result.session.sessionName || "";
-          this.setStatus("Ready", `${result.session.sessionName} • ${result.session.sessionTimes} • ${result.session.day}`);
+          this.currentSessionOpen = !!(result.sessionStatus && result.sessionStatus.isOpen);
+
+          if (result.sessionStatus && result.sessionStatus.currentSession) {
+            this.currentSessionName = result.sessionStatus.currentSession.sessionName || "";
+            const summary = this.sessionSummary(result.sessionStatus.currentSession);
+            this.setSessionInfo("Open now", summary, "open");
+            this.setStatus("Ready", summary);
+            return;
+          }
+
+          this.currentSessionName = "";
+          if (result.sessionStatus && result.sessionStatus.nextSession) {
+            const nextSummary = this.sessionSummary(result.sessionStatus.nextSession);
+            this.setSessionInfo("No session open", `Next session: ${nextSummary}`, "closed");
+            this.setStatus("No session open", `Next session: ${nextSummary}`);
+            return;
+          }
+
+          this.setSessionInfo("No session configured", "Add an active session in the Config tab.", "closed");
+          this.setStatus("Backend configuration error", "No active or upcoming sessions are configured.", "error");
         } catch (error) {
           this.currentSessionName = "";
+          this.currentSessionOpen = false;
+          this.setSessionInfo("Session unavailable", error.message, "closed");
           this.setStatus("Backend configuration error", error.message, "error");
         }
       },
@@ -655,6 +725,7 @@
           this.renderRecentSignIns();
         } catch (error) {
           this.setStatus("Sign-in failed", error.message, "error");
+          this.refreshSessionStatus();
         }
       },
       submitManual() {
@@ -674,14 +745,12 @@
       unlock() {
         const password = el.passwordInput.value;
         if (!password) {
-          this.setUnlocked(false);
-          this.setAuthMessage("Enter the attendance password first.", "error");
-          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          this.failUnlock("Enter the attendance password first.");
           return;
         }
 
         this.password = password;
-        this.request({ action: "verify" }).then((result) => {
+        this.request({ action: "verify" }, false).then((result) => {
           if (!result.success) {
             throw new Error(result.message || "The password is incorrect.");
           }
@@ -692,6 +761,7 @@
           this.setAuthMessage("Access granted. You can now scan cards and record manual sign-ins.", "success");
           this.setStatus("Unlocked", "Scanner and manual sign-in are ready.", "success");
           el.passwordInput.value = "";
+          this.refreshSessionStatus();
           window.setTimeout(() => {
             if (this.unlocked) {
               el.accessCard.classList.add("hidden");
@@ -699,12 +769,15 @@
           }, 1200);
           this.focusInput();
         }).catch((error) => {
-          this.password = "";
-          this.setUnlocked(false);
-          this.setAuthMessage(error.message || "The password is incorrect.", "error");
-          this.setStatus("Access denied", error.message || "The password is incorrect.", "error");
-          el.passwordInput.select();
+          this.failUnlock(error.message || "The password is incorrect.");
         });
+      },
+      failUnlock(message) {
+        this.password = "";
+        this.setUnlocked(false);
+        this.setAuthMessage(message, "error");
+        this.setStatus("Access denied", message, "error");
+        el.passwordInput.select();
       },
       bind() {
         el.startBtn.addEventListener("click", () => this.startScanner());
@@ -726,6 +799,7 @@
       async start() {
         this.setUnlocked(false);
         this.setAuthMessage("Enter the attendance password before scanning or signing in manually.");
+        this.setSessionInfo("Locked", "Enter the attendance password to load session details.");
         this.renderRecentSignIns();
         this.bind();
         el.passwordInput.focus();

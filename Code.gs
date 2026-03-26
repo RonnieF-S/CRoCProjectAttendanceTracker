@@ -33,40 +33,10 @@ function doGet(e) {
   var callback = param_(e, "callback");
 
   try {
-    var response;
-
-    if (action === "verify") {
-      verifyPassword_(param_(e, "password"));
-      response = {
-        success: true,
-        projectName: getProjectName_(),
-      };
-    } else if (action === "signin") {
-      verifyPassword_(param_(e, "password"));
-      response = signIn_(param_(e, "studentNumber"), param_(e, "method") || "manual");
-    } else if (action === "session") {
-      verifyPassword_(param_(e, "password"));
-      response = {
-        success: true,
-        projectName: getProjectName_(),
-        session: getCurrentSession_(),
-      };
-    } else if (action === "config") {
-      verifyPassword_(param_(e, "password"));
-      response = {
-        success: true,
-        projectName: getProjectName_(),
-      };
-    } else {
-      response = {
-        success: false,
-        message: "Invalid action.",
-      };
-    }
-
-    return respond_(callback, response);
+    return respond_(callback, handleAction_(action, e));
   } catch (error) {
     var session = tryGetCurrentSession_();
+    var nextSession = getNextSession_();
     return respond_(callback, {
       success: false,
       message: error.message || "Unknown error.",
@@ -75,14 +45,46 @@ function doGet(e) {
       sessionTimes: session ? session.sessionTimes : "",
       day: session ? session.day : "",
       logBookHours: session ? session.logBookHours : "",
+      nextSession: nextSession,
     });
   }
 }
 
+function handleAction_(action, e) {
+  if (action === "verify") {
+    verifyPassword_(param_(e, "password"));
+    return successPayload_();
+  }
+
+  if (action === "signin") {
+    verifyPassword_(param_(e, "password"));
+    return signIn_(param_(e, "studentNumber"), param_(e, "method") || "manual");
+  }
+
+  if (action === "session") {
+    verifyPassword_(param_(e, "password"));
+    return {
+      success: true,
+      projectName: getProjectName_(),
+      sessionStatus: getSessionStatus_(),
+    };
+  }
+
+  if (action === "config") {
+    verifyPassword_(param_(e, "password"));
+    return successPayload_();
+  }
+
+  return {
+    success: false,
+    message: "Invalid action.",
+  };
+}
+
 function setupSpreadsheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var attendanceSheet = getOrCreateSheet_(ss, SHEETS.ATTENDANCE, ATTENDANCE_HEADERS);
   var configSheet = getOrCreateSheet_(ss, SHEETS.CONFIG, CONFIG_HEADERS);
+  var attendanceSheet = getOrCreateSheet_(ss, SHEETS.ATTENDANCE, ATTENDANCE_HEADERS);
 
   if (configSheet.getLastRow() === 1) {
     configSheet.getRange(2, 1, 2, CONFIG_HEADERS.length).setValues([
@@ -178,73 +180,91 @@ function signIn_(rawIdentifier, method) {
 }
 
 function getCurrentSession_() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
-  var rows = sheet.getDataRange().getValues();
-  var now = new Date();
-  var tz = Session.getScriptTimeZone();
-  var day = Utilities.formatDate(now, tz, "EEEE");
-  var currentMinutes = Number(Utilities.formatDate(now, tz, "H")) * 60 + Number(Utilities.formatDate(now, tz, "m"));
-
-  for (var i = 1; i < rows.length; i += 1) {
-    var row = rows[i];
-    var projectName = text_(row[0]);
-    var sessionName = text_(row[2]);
-    var sessionDay = text_(row[3]);
-    var startTime = toTimeText_(row[4]);
-    var endTime = toTimeText_(row[5]);
-
-    if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[7]) || sessionDay !== day) {
-      continue;
-    }
-
-    var startMinutes = toMinutes_(row[4]);
-    var endMinutes = toMinutes_(row[5]);
-    if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
-      return {
-        projectName: projectName || getProjectName_(),
-        sessionName: sessionName,
-        sessionTimes: startTime + " - " + endTime,
-        day: sessionDay,
-        logBookHours: Number(row[6]) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
-      };
-    }
+  var session = getSessionStatus_().currentSession;
+  if (session) {
+    return session;
   }
 
   throw new Error("No active session matches the current day and time.");
 }
 
-function getProjectName_() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
-  if (!sheet || sheet.getLastRow() <= 1) {
-    return "Project";
-  }
+function getSessionStatus_() {
+  var rows = getConfigRows_();
+  var now = new Date();
+  var tz = Session.getScriptTimeZone();
+  var day = Utilities.formatDate(now, tz, "EEEE");
+  var dayIndex = dayIndex_(day);
+  var currentMinutes = Number(Utilities.formatDate(now, tz, "H")) * 60 + Number(Utilities.formatDate(now, tz, "m"));
+  var nextSession = null;
+  var nextOffset = null;
 
-  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
-  for (var i = 0; i < values.length; i += 1) {
-    var projectName = text_(values[i][0]);
-    if (projectName) {
-      return projectName;
+  for (var i = 0; i < rows.length; i += 1) {
+    var row = rows[i];
+    var session = sessionFromRow_(row);
+    if (!session) {
+      continue;
+    }
+
+    if (session.day === day && currentMinutes >= session.startMinutes && currentMinutes < session.endMinutes) {
+      return {
+        isOpen: true,
+        currentSession: session,
+        nextSession: null,
+      };
+    }
+
+    var offset = minutesUntilSession_(dayIndex, currentMinutes, session.dayIndex, session.startMinutes);
+    if (nextOffset === null || offset < nextOffset) {
+      nextOffset = offset;
+      nextSession = session;
     }
   }
 
-  return "Project";
+  return {
+    isOpen: false,
+    currentSession: null,
+    nextSession: nextSession,
+  };
+}
+
+function getNextSession_() {
+  return getSessionStatus_().nextSession;
+}
+
+function getProjectName_() {
+  return getFirstConfigValue_(0, "Project");
 }
 
 function getAccessPassword_() {
+  return getFirstConfigValue_(1, "");
+}
+
+function getConfigRows_() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
   if (!sheet || sheet.getLastRow() <= 1) {
-    return "";
+    return [];
   }
 
-  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
-  for (var i = 0; i < values.length; i += 1) {
-    var password = text_(values[i][1]);
-    if (password) {
-      return password;
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG_HEADERS.length).getValues();
+}
+
+function successPayload_() {
+  return {
+    success: true,
+    projectName: getProjectName_(),
+  };
+}
+
+function getFirstConfigValue_(columnIndex, fallback) {
+  var rows = getConfigRows_();
+  for (var i = 0; i < rows.length; i += 1) {
+    var value = text_(rows[i][columnIndex]);
+    if (value) {
+      return value;
     }
   }
 
-  return "";
+  return fallback;
 }
 
 function verifyPassword_(password) {
@@ -284,6 +304,39 @@ function findDuplicateRows_(sheet, dateText, identifier, sessionName) {
   return matches;
 }
 
+function sessionFromRow_(row) {
+  var projectName = text_(row[0]);
+  var sessionName = text_(row[2]);
+  var sessionDay = text_(row[3]);
+  var startTime = toTimeText_(row[4]);
+  var endTime = toTimeText_(row[5]);
+
+  if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[7])) {
+    return null;
+  }
+
+  var startMinutes = toMinutes_(row[4]);
+  var endMinutes = toMinutes_(row[5]);
+
+  return {
+    projectName: projectName || getProjectName_(),
+    sessionName: sessionName,
+    sessionTimes: startTime + " - " + endTime,
+    day: sessionDay,
+    dayIndex: dayIndex_(sessionDay),
+    startMinutes: startMinutes,
+    endMinutes: endMinutes,
+    logBookHours: Number(row[6]) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
+  };
+}
+
+function minutesUntilSession_(currentDayIndex, currentMinutes, sessionDayIndex, startMinutes) {
+  var dayDelta = (sessionDayIndex - currentDayIndex + 7) % 7;
+  var minuteDelta = startMinutes - currentMinutes;
+  var total = dayDelta * 24 * 60 + minuteDelta;
+  return total > 0 ? total : total + 7 * 24 * 60;
+}
+
 function normalizeIdentifier_(value) {
   var cleaned = text_(value).toUpperCase().replace(/\s+/g, "");
   if (!cleaned) {
@@ -307,14 +360,8 @@ function getOrCreateSheet_(ss, name, headers) {
     sheet = ss.insertSheet(name);
   }
 
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.setFrozenRows(1);
-  } else {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.setFrozenRows(1);
-  }
-
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.setFrozenRows(1);
   return sheet;
 }
 
@@ -379,6 +426,15 @@ function text_(value) {
 
 function pad2_(value) {
   return value < 10 ? "0" + value : String(value);
+}
+
+function dayIndex_(dayName) {
+  var days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var index = days.indexOf(dayName);
+  if (index === -1) {
+    throw new Error("Invalid day name in Config: " + dayName);
+  }
+  return index;
 }
 
 function param_(e, key) {
