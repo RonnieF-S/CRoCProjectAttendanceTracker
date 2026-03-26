@@ -17,6 +17,7 @@ var ATTENDANCE_HEADERS = [
 
 var CONFIG_HEADERS = [
   "Project Name",
+  "Password",
   "Session Name",
   "Day",
   "Start Time",
@@ -34,15 +35,24 @@ function doGet(e) {
   try {
     var response;
 
-    if (action === "signin") {
+    if (action === "verify") {
+      verifyPassword_(param_(e, "password"));
+      response = {
+        success: true,
+        projectName: getProjectName_(),
+      };
+    } else if (action === "signin") {
+      verifyPassword_(param_(e, "password"));
       response = signIn_(param_(e, "studentNumber"), param_(e, "method") || "manual");
     } else if (action === "session") {
+      verifyPassword_(param_(e, "password"));
       response = {
         success: true,
         projectName: getProjectName_(),
         session: getCurrentSession_(),
       };
     } else if (action === "config") {
+      verifyPassword_(param_(e, "password"));
       response = {
         success: true,
         projectName: getProjectName_(),
@@ -76,8 +86,8 @@ function setupSpreadsheet() {
 
   if (configSheet.getLastRow() === 1) {
     configSheet.getRange(2, 1, 2, CONFIG_HEADERS.length).setValues([
-      ["Example Project", "Tuesday Build", "Tuesday", "17:00", "20:00", 3, true],
-      ["Example Project", "Thursday Build", "Thursday", "18:00", "20:00", 2, true],
+      ["Example Project", "CR0C", "Tuesday Build", "Tuesday", "17:00", "20:00", 3, true],
+      ["Example Project", "CR0C", "Thursday Build", "Thursday", "18:00", "20:00", 2, true],
     ]);
   }
 
@@ -178,24 +188,24 @@ function getCurrentSession_() {
   for (var i = 1; i < rows.length; i += 1) {
     var row = rows[i];
     var projectName = text_(row[0]);
-    var sessionName = text_(row[1]);
-    var sessionDay = text_(row[2]);
-    var startTime = toTimeText_(row[3]);
-    var endTime = toTimeText_(row[4]);
+    var sessionName = text_(row[2]);
+    var sessionDay = text_(row[3]);
+    var startTime = toTimeText_(row[4]);
+    var endTime = toTimeText_(row[5]);
 
-    if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[6]) || sessionDay !== day) {
+    if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[7]) || sessionDay !== day) {
       continue;
     }
 
-    var startMinutes = toMinutes_(row[3]);
-    var endMinutes = toMinutes_(row[4]);
+    var startMinutes = toMinutes_(row[4]);
+    var endMinutes = toMinutes_(row[5]);
     if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
       return {
         projectName: projectName || getProjectName_(),
         sessionName: sessionName,
         sessionTimes: startTime + " - " + endTime,
         day: sessionDay,
-        logBookHours: Number(row[5]) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
+        logBookHours: Number(row[6]) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
       };
     }
   }
@@ -218,6 +228,33 @@ function getProjectName_() {
   }
 
   return "Project";
+}
+
+function getAccessPassword_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CONFIG);
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return "";
+  }
+
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  for (var i = 0; i < values.length; i += 1) {
+    var password = text_(values[i][1]);
+    if (password) {
+      return password;
+    }
+  }
+
+  return "";
+}
+
+function verifyPassword_(password) {
+  var configuredPassword = getAccessPassword_();
+  if (!configuredPassword) {
+    throw new Error("Backend access password is not configured.");
+  }
+  if (text_(password) !== configuredPassword) {
+    throw new Error("The access password is incorrect.");
+  }
 }
 
 function tryGetCurrentSession_() {

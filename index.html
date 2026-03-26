@@ -205,6 +205,21 @@
       margin: 0;
     }
 
+    .auth-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .auth-row input {
+      flex: 1 1 240px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
     @media (max-width: 900px) {
       body {
         padding: 16px;
@@ -223,6 +238,15 @@
 <body>
   <h1 id="pageTitle">Project Attendance</h1>
   <p>Scan a student card barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
+
+  <div class="card">
+    <h2>Access</h2>
+    <div class="auth-row">
+      <input id="passwordInput" type="password" placeholder="Enter access password">
+      <button id="unlockBtn" type="button">Unlock</button>
+    </div>
+    <div id="authMessage" class="muted">Enter the attendance password before scanning or signing in manually.</div>
+  </div>
 
   <div class="card status-panel">
     <h2>Sign-In Status</h2>
@@ -271,6 +295,9 @@
 
     const el = {
       pageTitle: document.getElementById("pageTitle"),
+      passwordInput: document.getElementById("passwordInput"),
+      unlockBtn: document.getElementById("unlockBtn"),
+      authMessage: document.getElementById("authMessage"),
       reader: document.getElementById("reader"),
       statusBanner: document.getElementById("statusBanner"),
       statusMessage: document.getElementById("statusMessage"),
@@ -292,10 +319,24 @@
       currentSessionName: "",
       keyboardBuffer: "",
       keyboardTimer: null,
+      unlocked: false,
+      password: "",
       setProjectName(projectName) {
         const name = projectName || "Project";
         document.title = `${name} Attendance`;
         el.pageTitle.textContent = `${name} Attendance`;
+      },
+      setUnlocked(unlocked) {
+        this.unlocked = unlocked;
+        el.studentInput.disabled = !unlocked;
+        el.manualBtn.disabled = !unlocked;
+        el.startBtn.disabled = !unlocked;
+        if (!unlocked) {
+          this.stopScanner();
+        }
+        el.authMessage.textContent = unlocked
+          ? "Access granted. Scanner and manual sign-in are enabled."
+          : "Enter the attendance password before scanning or signing in manually.";
       },
       setStatus(message, detail = "", type = "") {
         el.statusBanner.className = `status-banner ${type}`.trim();
@@ -345,9 +386,13 @@
       },
       request(params) {
         return new Promise((resolve, reject) => {
+          if (!this.password) {
+            reject(new Error("Enter the attendance password before signing people in."));
+            return;
+          }
           const callbackName = `jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
           const script = document.createElement("script");
-          const query = new URLSearchParams({ ...params, callback: callbackName }).toString();
+          const query = new URLSearchParams({ ...params, password: this.password, callback: callbackName }).toString();
           window[callbackName] = function(response) {
             cleanup();
             resolve(response);
@@ -387,6 +432,10 @@
         throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
       },
       async startScanner() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
         if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
           this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
           return;
@@ -508,6 +557,9 @@
         el.studentInput.focus();
       },
       handleKeyboardScanner(event) {
+        if (!this.unlocked) {
+          return;
+        }
         if (event.ctrlKey || event.metaKey || event.altKey) {
           return;
         }
@@ -583,6 +635,10 @@
         }
       },
       submitManual() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
         const value = el.studentInput.value.trim();
         if (!value) {
           this.setStatus("No value entered", "Please enter a student number or barcode.", "error");
@@ -592,23 +648,55 @@
         el.studentInput.value = "";
         this.focusInput();
       },
+      unlock() {
+        const password = el.passwordInput.value;
+        if (!password) {
+          this.setUnlocked(false);
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+
+        this.password = password;
+        this.request({ action: "verify" }).then((result) => {
+          if (!result.success) {
+            throw new Error(result.message || "The password is incorrect.");
+          }
+          this.setUnlocked(true);
+          if (result.projectName) {
+            this.setProjectName(result.projectName);
+          }
+          this.setStatus("Unlocked", "Scanner and manual sign-in are ready.");
+          el.passwordInput.value = "";
+          this.focusInput();
+        }).catch((error) => {
+          this.password = "";
+          this.setUnlocked(false);
+          this.setStatus("Access denied", error.message || "The password is incorrect.", "error");
+          el.passwordInput.select();
+        });
+      },
       bind() {
         el.startBtn.addEventListener("click", () => this.startScanner());
         el.stopBtn.addEventListener("click", () => this.stopScanner());
         el.manualBtn.addEventListener("click", () => this.submitManual());
+        el.unlockBtn.addEventListener("click", () => this.unlock());
         el.studentInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             this.submitManual();
           }
         });
+        el.passwordInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            this.unlock();
+          }
+        });
         document.addEventListener("keydown", (event) => this.handleKeyboardScanner(event));
       },
       async start() {
-        await this.loadConfig();
-        await this.refreshSessionStatus();
+        this.setUnlocked(false);
         this.renderRecentSignIns();
         this.bind();
-        this.focusInput();
+        el.passwordInput.focus();
       }
     };
 
