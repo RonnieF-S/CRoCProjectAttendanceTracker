@@ -5,12 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Build Session Attendance</title>
   <style>
+    :root {
+      --bg: #f3f5f8;
+      --panel: #ffffff;
+      --border: #d7dee8;
+      --text: #17212b;
+      --muted: #5c6b7a;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --success-bg: #dcfce7;
+      --success-border: #22c55e;
+      --success-text: #166534;
+      --error-bg: #fee2e2;
+      --error-border: #ef4444;
+      --error-text: #991b1b;
+      --shadow: 0 16px 32px rgba(23, 33, 43, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: Arial, sans-serif;
-      max-width: 720px;
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 20px;
-      background: #f7f7f7;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 26%),
+        var(--bg);
+      color: var(--text);
     }
 
     h1 {
@@ -18,84 +42,234 @@
     }
 
     p {
-      color: #444;
+      color: var(--muted);
     }
 
     .card {
-      background: white;
-      border-radius: 10px;
-      padding: 16px;
-      margin: 16px 0;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      margin: 18px 0;
+      box-shadow: var(--shadow);
+    }
+
+    .scanner-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
     }
 
     video {
       width: 100%;
-      max-width: 520px;
+      min-height: 320px;
       background: black;
-      border-radius: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      object-fit: cover;
     }
 
     input, button {
       font-size: 16px;
-      padding: 10px;
-      margin-top: 8px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
     }
 
     input {
       width: 100%;
-      box-sizing: border-box;
     }
 
     button {
-      margin-right: 8px;
       cursor: pointer;
+      border: 0;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
     }
 
-    #status {
-      margin-top: 12px;
-      font-weight: bold;
-      min-height: 24px;
+    button:hover {
+      background: var(--accent-strong);
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .manual-panel {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .manual-panel h2,
+    .scan-panel h2,
+    .status-panel h2,
+    .history-panel h2 {
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+
+    .status-banner {
+      border-radius: 16px;
+      border: 2px solid var(--border);
+      padding: 18px;
+      min-height: 120px;
+      display: grid;
+      gap: 8px;
+      align-content: center;
+      background: #f8fafc;
+    }
+
+    .status-banner.success {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+    }
+
+    .status-banner.error {
+      background: var(--error-bg);
+      border-color: var(--error-border);
+      color: var(--error-text);
+    }
+
+    .status-label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-message {
+      font-size: 28px;
+      line-height: 1.2;
+      font-weight: 800;
+      color: inherit;
+    }
+
+    .status-detail {
+      font-size: 15px;
+      color: inherit;
+      opacity: 0.9;
+    }
+
+    .history-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+    }
+
+    .history-name {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .history-meta {
+      font-size: 14px;
+      color: var(--muted);
     }
 
     .muted {
-      color: #666;
+      color: var(--muted);
       font-size: 14px;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    @media (max-width: 900px) {
+      body {
+        padding: 16px;
+      }
+
+      .scanner-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .status-message {
+        font-size: 24px;
+      }
     }
   </style>
 </head>
 <body>
   <h1>Build Session Attendance</h1>
-  <p>Scan a student card barcode or enter the student number manually.</p>
+  <p>Scan a barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
 
-  <div class="card">
-    <h2>Barcode Scanner</h2>
-    <video id="video" autoplay playsinline></video><br>
-    <button id="startBtn">Start Camera</button>
-    <button id="stopBtn">Stop Camera</button>
-    <div class="muted">Best used in Chrome on a phone or laptop.</div>
+  <div class="scanner-layout">
+    <div class="card scan-panel">
+      <h2>Barcode Scanner</h2>
+      <video id="video" autoplay playsinline></video>
+      <div class="button-row">
+        <button id="startBtn">Start Camera</button>
+        <button id="stopBtn">Stop Camera</button>
+      </div>
+      <div class="muted">Best used in Chrome on a phone or laptop.</div>
+    </div>
+
+    <div class="card manual-panel">
+      <div>
+        <h2>Manual Entry</h2>
+        <p class="muted">Use this if the barcode cannot be read.</p>
+      </div>
+      <input id="studentNumber" type="text" placeholder="Enter barcode, student ID, or staff ID">
+      <button id="manualBtn">Sign In Manually</button>
+      <div class="muted">Student: `xxx12345678` or `12345678`</div>
+      <div class="muted">Staff: `xxx123456A` or `123456A`</div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Manual Entry</h2>
-    <input id="studentNumber" type="text" placeholder="Enter student number">
-    <button id="manualBtn">Sign In Manually</button>
+  <div class="card status-panel">
+    <h2>Sign-In Status</h2>
+    <div id="statusBanner" class="status-banner">
+      <div class="status-label">Scanner status</div>
+      <div id="statusMessage" class="status-message">Ready.</div>
+      <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Status</h2>
-    <div id="status">Ready.</div>
+  <div class="card history-panel">
+    <h2>Recently Signed In</h2>
+    <ul id="recentList" class="history-list">
+      <li id="recentEmpty" class="empty-state">No recent sign-ins yet.</li>
+    </ul>
   </div>
 
   <script>
     const APPS_SCRIPT_URL = "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec";
 
     const video = document.getElementById("video");
-    const statusEl = document.getElementById("status");
+    const statusBanner = document.getElementById("statusBanner");
+    const statusMessageEl = document.getElementById("statusMessage");
+    const statusDetailEl = document.getElementById("statusDetail");
     const studentInput = document.getElementById("studentNumber");
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
     const manualBtn = document.getElementById("manualBtn");
+    const recentList = document.getElementById("recentList");
+    const recentEmpty = document.getElementById("recentEmpty");
 
     let stream = null;
     let scanning = false;
@@ -103,9 +277,62 @@
     let scanInterval = null;
     let lastScannedValue = "";
     let lastScannedTime = 0;
+    const recentSignIns = [];
 
-    function setStatus(message) {
-      statusEl.textContent = message;
+    function setStatus(message, detail = "", type = "") {
+      statusBanner.className = `status-banner ${type}`.trim();
+      statusMessageEl.textContent = message;
+      statusDetailEl.textContent = detail;
+    }
+
+    function addRecentSignIn(identifier, memberType, method, sessionName) {
+      recentSignIns.unshift({
+        identifier,
+        memberType,
+        method,
+        sessionName,
+        signedInAt: new Date()
+      });
+
+      if (recentSignIns.length > 12) {
+        recentSignIns.length = 12;
+      }
+
+      renderRecentSignIns();
+    }
+
+    function renderRecentSignIns() {
+      recentList.innerHTML = "";
+
+      if (!recentSignIns.length) {
+        recentList.appendChild(recentEmpty);
+        return;
+      }
+
+      recentSignIns.forEach((entry) => {
+        const li = document.createElement("li");
+        li.className = "history-item";
+
+        const left = document.createElement("div");
+        const name = document.createElement("div");
+        name.className = "history-name";
+        name.textContent = entry.identifier;
+
+        const meta = document.createElement("div");
+        meta.className = "history-meta";
+        meta.textContent = `${entry.memberType} • ${entry.method} • ${entry.sessionName}`;
+
+        left.appendChild(name);
+        left.appendChild(meta);
+
+        const right = document.createElement("div");
+        right.className = "history-meta";
+        right.textContent = entry.signedInAt.toLocaleTimeString();
+
+        li.appendChild(left);
+        li.appendChild(right);
+        recentList.appendChild(li);
+      });
     }
 
     function jsonpRequest(params) {
@@ -140,34 +367,70 @@
       });
     }
 
-    async function submitStudent(studentNumber, method) {
+    function normalizeIdentifier(rawValue) {
+      const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
+      const fullStudentMatch = cleaned.match(/^.{3}(\d{8})$/);
+      if (fullStudentMatch) {
+        return { identifier: fullStudentMatch[1], memberType: "Student" };
+      }
+
+      const shortStudentMatch = cleaned.match(/^(\d{8})$/);
+      if (shortStudentMatch) {
+        return { identifier: shortStudentMatch[1], memberType: "Student" };
+      }
+
+      const fullStaffMatch = cleaned.match(/^.{3}(\d{6}[A-Z])$/);
+      if (fullStaffMatch) {
+        return { identifier: fullStaffMatch[1], memberType: "Staff" };
+      }
+
+      const shortStaffMatch = cleaned.match(/^(\d{6}[A-Z])$/);
+      if (shortStaffMatch) {
+        return { identifier: shortStaffMatch[1], memberType: "Staff" };
+      }
+
+      throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
+    }
+
+    async function submitStudent(rawValue, method) {
       try {
-        setStatus(`Saving ${studentNumber}...`);
+        const normalized = normalizeIdentifier(rawValue);
+        setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`, "");
 
         const result = await jsonpRequest({
           action: "signin",
-          studentNumber: studentNumber,
+          studentNumber: normalized.identifier,
           method: method
         });
 
         if (result.success) {
-          setStatus(`${result.message} | Session: ${result.session}`);
+          setStatus(
+            "Sign-in recorded",
+            `${normalized.memberType} ${normalized.identifier} recorded. Session: ${result.session}`,
+            "success"
+          );
+          addRecentSignIn(
+            result.studentNumber || normalized.identifier,
+            normalized.memberType,
+            method,
+            result.session || "Current session"
+          );
         } else {
-          setStatus(`Error: ${result.message}`);
+          setStatus("Sign-in failed", result.message, "error");
         }
       } catch (err) {
-        setStatus(`Error: ${err.message}`);
+        setStatus("Sign-in failed", err.message, "error");
       }
     }
 
     async function startScanner() {
       if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
-        setStatus("Camera access is not supported in this browser.");
+        setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
         return;
       }
 
       if (!("BarcodeDetector" in window)) {
-        setStatus("Barcode scanning is not supported in this browser. Use manual entry.");
+        setStatus("Scanner unavailable", "Barcode scanning is not supported in this browser. Use manual entry.", "error");
         return;
       }
 
@@ -186,11 +449,11 @@
 
         video.srcObject = stream;
         scanning = true;
-        setStatus("Camera started. Point it at the student card barcode.");
+        setStatus("Scanner ready", "Point the camera at the student card barcode.", "");
 
         scanInterval = setInterval(scanFrame, 500);
       } catch (err) {
-        setStatus(`Could not start camera: ${err.message}`);
+        setStatus("Camera unavailable", `Could not start camera: ${err.message}`, "error");
       }
     }
 
@@ -234,14 +497,14 @@
       }
 
       video.srcObject = null;
-      setStatus("Camera stopped.");
+      setStatus("Camera stopped", "Manual entry is still available.", "");
     }
 
     function submitManual() {
       const value = studentInput.value.trim();
 
       if (!value) {
-        setStatus("Please enter a student number.");
+        setStatus("No value entered", "Please enter a student number or barcode.", "error");
         return;
       }
 
@@ -258,6 +521,8 @@
         submitManual();
       }
     });
+
+    renderRecentSignIns();
   </script>
 </body>
 </html>
