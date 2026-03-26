@@ -255,7 +255,7 @@
     </ul>
   </div>
 
-  <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
   <script>
     const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
@@ -282,6 +282,7 @@
       stream: null,
       scanning: false,
       codeReader: null,
+      scannerControls: null,
       lastScannedValue: "",
       lastScannedTime: 0,
       currentSessionName: "",
@@ -384,24 +385,52 @@
           this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
           return;
         }
-        if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) {
+        if (!window.ZXingBrowser || !window.ZXingBrowser.BrowserMultiFormatReader) {
           this.setStatus("Scanner unavailable", "Barcode scanning library did not load. Use manual entry.", "error");
           return;
         }
         try {
           const hints = new Map();
-          hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-            window.ZXing.BarcodeFormat.CODE_128,
-            window.ZXing.BarcodeFormat.CODE_39,
-            window.ZXing.BarcodeFormat.EAN_13,
-            window.ZXing.BarcodeFormat.EAN_8
+          hints.set(window.ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
+            window.ZXingBrowser.BarcodeFormat.CODE_128,
+            window.ZXingBrowser.BarcodeFormat.CODE_39,
+            window.ZXingBrowser.BarcodeFormat.CODABAR,
+            window.ZXingBrowser.BarcodeFormat.ITF,
+            window.ZXingBrowser.BarcodeFormat.EAN_13,
+            window.ZXingBrowser.BarcodeFormat.EAN_8,
+            window.ZXingBrowser.BarcodeFormat.UPC_A,
+            window.ZXingBrowser.BarcodeFormat.UPC_E
           ]);
+          hints.set(window.ZXingBrowser.DecodeHintType.TRY_HARDER, true);
 
-          this.codeReader = new window.ZXing.BrowserMultiFormatReader(hints);
+          this.codeReader = new window.ZXingBrowser.BrowserMultiFormatReader(hints);
+          const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+          const preferredDevice = this.pickBestCamera(devices);
+          const constraints = preferredDevice ? {
+            video: {
+              deviceId: { exact: preferredDevice.deviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          } : {
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          };
+
           this.scanning = true;
-          this.setStatus("Scanner ready", this.currentSessionName ? `Current session: ${this.currentSessionName}` : "Point the camera at the member barcode.");
+          this.setStatus(
+            "Scanner ready",
+            this.currentSessionName
+              ? `Current session: ${this.currentSessionName}`
+              : "Point the camera at the member barcode."
+          );
 
-          await this.codeReader.decodeFromVideoDevice(null, el.video, (result, error) => {
+          this.scannerControls = await this.codeReader.decodeFromConstraints(constraints, el.video, (result, error) => {
             if (!this.scanning) {
               return;
             }
@@ -412,9 +441,9 @@
             }
 
             if (error &&
-                !(error instanceof window.ZXing.NotFoundException) &&
-                !(error instanceof window.ZXing.ChecksumException) &&
-                !(error instanceof window.ZXing.FormatException)) {
+                !(error instanceof window.ZXingBrowser.NotFoundException) &&
+                !(error instanceof window.ZXingBrowser.ChecksumException) &&
+                !(error instanceof window.ZXingBrowser.FormatException)) {
               console.error(error);
             }
           });
@@ -424,6 +453,10 @@
       },
       stopScanner() {
         this.scanning = false;
+        if (this.scannerControls) {
+          this.scannerControls.stop();
+          this.scannerControls = null;
+        }
         if (this.codeReader) {
           this.codeReader.reset();
           this.codeReader = null;
@@ -444,6 +477,33 @@
         this.lastScannedValue = value;
         this.lastScannedTime = now;
         await this.submit(value, "barcode");
+      },
+      pickBestCamera(devices) {
+        if (!devices || !devices.length) {
+          return null;
+        }
+
+        const ranked = devices.slice().sort((a, b) => {
+          return this.cameraScore(b.label) - this.cameraScore(a.label);
+        });
+
+        return ranked[0];
+      },
+      cameraScore(label) {
+        const text = String(label || "").toLowerCase();
+        let score = 0;
+
+        if (text.includes("back") || text.includes("rear") || text.includes("environment")) {
+          score += 5;
+        }
+        if (text.includes("external") || text.includes("usb")) {
+          score += 3;
+        }
+        if (text.includes("front") || text.includes("facetime")) {
+          score -= 5;
+        }
+
+        return score;
       },
       async loadConfig() {
         try {
