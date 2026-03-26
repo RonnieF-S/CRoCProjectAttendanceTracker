@@ -474,19 +474,35 @@
           if (!this.html5QrCode) {
             this.html5QrCode = new Html5Qrcode("reader");
           }
-          const cameraConfig = await this.buildCameraConfig();
+          const cameraOptions = await this.buildCameraOptions();
+          let started = false;
+          let lastError = null;
+
+          for (let i = 0; i < cameraOptions.length; i += 1) {
+            try {
+              await this.html5QrCode.start(
+                cameraOptions[i].camera,
+                cameraOptions[i].config,
+                (decodedText) => this.handleScan(decodedText),
+                () => {}
+              );
+              started = true;
+              break;
+            } catch (error) {
+              lastError = error;
+            }
+          }
+
+          if (!started) {
+            throw lastError || new Error("No camera could be started.");
+          }
+
           this.scanning = true;
           this.setStatus(
             "Scanner ready",
             this.currentSessionName
               ? `Current session: ${this.currentSessionName}`
               : "Point the camera at the member barcode."
-          );
-          await this.html5QrCode.start(
-            cameraConfig.camera,
-            cameraConfig.config,
-            (decodedText) => this.handleScan(decodedText),
-            () => {}
           );
         } catch (error) {
           this.stopScanner();
@@ -523,16 +539,19 @@
         this.lastScannedTime = now;
         await this.submit(value, "barcode");
       },
-      async buildCameraConfig() {
+      async buildCameraOptions() {
+        const config = {
+          fps: 10,
+          qrbox: { width: 420, height: 180 },
+          aspectRatio: 1.7777778
+        };
+
         if (this.isMobileDevice()) {
-          return {
-            camera: { facingMode: "environment" },
-            config: {
-              fps: 10,
-              qrbox: { width: 420, height: 180 },
-              aspectRatio: 1.7777778
-            },
-          };
+          return [
+            { camera: { facingMode: { exact: "environment" } }, config: config },
+            { camera: { facingMode: "environment" }, config: config },
+            { camera: { facingMode: "user" }, config: config }
+          ];
         }
 
         let devices = [];
@@ -543,24 +562,16 @@
         }
 
         if (devices.length) {
-          return {
-            camera: { deviceId: { exact: devices[0].id } },
-            config: {
-              fps: 10,
-              qrbox: { width: 420, height: 180 },
-              aspectRatio: 1.7777778
-            },
-          };
+          return devices.map((device) => ({
+            camera: { deviceId: { exact: device.id } },
+            config: config
+          }));
         }
 
-        return {
-          camera: { facingMode: "environment" },
-          config: {
-            fps: 10,
-            qrbox: { width: 420, height: 180 },
-            aspectRatio: 1.7777778
-          },
-        };
+        return [
+          { camera: { facingMode: "environment" }, config: config },
+          { camera: { facingMode: "user" }, config: config }
+        ];
       },
       isMobileDevice() {
         return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
