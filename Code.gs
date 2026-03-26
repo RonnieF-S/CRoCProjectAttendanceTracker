@@ -25,11 +25,6 @@ var CONFIG_HEADERS = [
   "Active",
 ];
 
-var AUTH = {
-  CLIENT_ID: "REPLACE_WITH_GOOGLE_CLIENT_ID",
-  ALLOWED_DOMAIN: "curtinrobotics.org",
-};
-
 function doGet(e) {
   setupSpreadsheet();
 
@@ -37,7 +32,6 @@ function doGet(e) {
   var callback = param_(e, "callback");
 
   try {
-    var user = requireAuthorizedUser_(param_(e, "idToken"));
     var response;
 
     if (action === "signin") {
@@ -52,7 +46,6 @@ function doGet(e) {
       response = {
         success: true,
         projectName: getProjectName_(),
-        userEmail: user.email,
       };
     } else {
       response = {
@@ -172,52 +165,6 @@ function signIn_(rawIdentifier, method) {
   } finally {
     lock.releaseLock();
   }
-}
-
-function requireAuthorizedUser_(idToken) {
-  if (!idToken) {
-    throw new Error("Please sign in with your Curtin Robotics Google account.");
-  }
-  if (!AUTH.CLIENT_ID || AUTH.CLIENT_ID === "REPLACE_WITH_GOOGLE_CLIENT_ID") {
-    throw new Error("Backend Google auth is not configured.");
-  }
-
-  var response = UrlFetchApp.fetch(
-    "https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(idToken),
-    { muteHttpExceptions: true }
-  );
-
-  if (response.getResponseCode() !== 200) {
-    throw new Error("Google sign-in verification failed.");
-  }
-
-  var claims = JSON.parse(response.getContentText());
-  var email = text_(claims.email).toLowerCase();
-  var hostedDomain = text_(claims.hd).toLowerCase();
-  var issuer = text_(claims.iss);
-  var audience = text_(claims.aud);
-  var emailVerified = String(claims.email_verified).toLowerCase() === "true";
-
-  if (audience !== AUTH.CLIENT_ID) {
-    throw new Error("Google sign-in client ID does not match the backend configuration.");
-  }
-  if (issuer !== "accounts.google.com" && issuer !== "https://accounts.google.com") {
-    throw new Error("Google sign-in issuer is invalid.");
-  }
-  if (!emailVerified) {
-    throw new Error("Google account email is not verified.");
-  }
-  if (hostedDomain !== AUTH.ALLOWED_DOMAIN) {
-    throw new Error("You must sign in with a @" + AUTH.ALLOWED_DOMAIN + " account.");
-  }
-  if (email.slice(-(AUTH.ALLOWED_DOMAIN.length + 1)) !== "@" + AUTH.ALLOWED_DOMAIN) {
-    throw new Error("You must sign in with a @" + AUTH.ALLOWED_DOMAIN + " account.");
-  }
-
-  return {
-    email: email,
-    hostedDomain: hostedDomain,
-  };
 }
 
 function getCurrentSession_() {
