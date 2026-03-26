@@ -17,6 +17,7 @@ The frontend is hosted from GitHub Pages. The backend runs as a Google Apps Scri
 - writes attendance rows into a Google Sheet
 - matches each sign-in to the current configured session
 - rejects duplicate sign-ins in the same session
+- requires the access password stored in the backend `Config` sheet
 - uses the project name from the Google Sheet to label the frontend page
 
 ## Supported ID formats
@@ -108,7 +109,7 @@ What each column means:
 The `Config` tab must use this exact header row:
 
 ```text
-Project Name | Session Name | Day | Start Time | End Time | Log book hours | Active
+Project Name | Password | Session Name | Day | Start Time | End Time | Log book hours | Active
 ```
 
 Each row describes one recurring session window.
@@ -116,20 +117,23 @@ Each row describes one recurring session window.
 Example:
 
 ```text
-Drone Team | Drone Team Build Session | Tuesday  | 16:30 | 21:00 | 2 | TRUE
-Drone Team | CRoC Build Night         | Thursday | 17:40 | 21:00 | 2 | TRUE
-Drone Team | Test                     | Thursday | 00:00 | 23:00 | 5 | TRUE
+Drone Team | CR0C | Drone Team Build Session | Tuesday  | 16:30 | 21:00 | 2 | TRUE
+Drone Team | CR0C | CRoC Build Night         | Thursday | 17:40 | 21:00 | 2 | TRUE
+Drone Team | CR0C | Test                     | Thursday | 00:00 | 23:00 | 5 | TRUE
 ```
 
 Column details:
 
 - `Project Name`: project label shown in the frontend title, for example `Drone Team`
+- `Password`: access password required by the frontend before sign-ins can begin
 - `Session Name`: the session label written into attendance rows
 - `Day`: full weekday name, for example `Monday`, `Tuesday`, `Thursday`
 - `Start Time`: start time in 24 hour format, for example `16:30`
 - `End Time`: end time in 24 hour format, for example `21:00`
 - `Log book hours`: numeric hours to credit for the session
 - `Active`: `TRUE` to enable the row, `FALSE` to disable it
+
+Use the same password value on each active row. The backend uses the first non-empty `Password` value it finds.
 
 ## Important time format rules
 
@@ -229,6 +233,8 @@ const CONFIG = {
 
 Replace `apiUrl` with the deployed Apps Script web app URL.
 
+The frontend does not store the access password. Users enter the password on the page, and the backend verifies it against the `Password` column in the `Config` tab.
+
 After that, commit and push the frontend so GitHub Pages serves the updated backend endpoint.
 
 ## Frontend deployment
@@ -264,8 +270,8 @@ Typical flow:
 Use a wide test session first:
 
 ```text
-Project Name | Session Name | Day      | Start Time | End Time | Log book hours | Active
-Drone Team   | Test         | Thursday | 00:00      | 23:00    | 5              | TRUE
+Project Name | Password | Session Name | Day      | Start Time | End Time | Log book hours | Active
+Drone Team   | CR0C     | Test         | Thursday | 00:00      | 23:00    | 5              | TRUE
 ```
 
 Then test:
@@ -301,6 +307,14 @@ Fix:
 Check the `Project Name` column in the `Config` tab.
 
 The frontend uses the first non-empty `Project Name` value it finds.
+
+### Access is denied even though the sheet is configured
+
+Check the `Password` column in the `Config` tab:
+
+- at least one active row must have a password value
+- the same password should be used across all active rows
+- the password entered on the frontend must match exactly
 
 ### Duplicate sign-ins are not being rejected
 
