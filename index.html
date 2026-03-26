@@ -524,6 +524,17 @@
         await this.submit(value, "barcode");
       },
       async buildCameraConfig() {
+        if (this.isMobileDevice()) {
+          return {
+            camera: { facingMode: "environment" },
+            config: {
+              fps: 10,
+              qrbox: { width: 420, height: 180 },
+              aspectRatio: 1.7777778
+            },
+          };
+        }
+
         let devices = [];
         try {
           devices = await Html5Qrcode.getCameras();
@@ -531,10 +542,9 @@
           devices = [];
         }
 
-        const preferredDevice = this.pickBestCamera(devices);
-        if (preferredDevice) {
+        if (devices.length) {
           return {
-            camera: { deviceId: { exact: preferredDevice.id } },
+            camera: { deviceId: { exact: devices[0].id } },
             config: {
               fps: 10,
               qrbox: { width: 420, height: 180 },
@@ -552,32 +562,8 @@
           },
         };
       },
-      pickBestCamera(devices) {
-        if (!devices || !devices.length) {
-          return null;
-        }
-
-        const ranked = devices.slice().sort((a, b) => {
-          return this.cameraScore(b.label) - this.cameraScore(a.label);
-        });
-
-        return ranked[0];
-      },
-      cameraScore(label) {
-        const text = String((label && (label.label || label.id)) || "").toLowerCase();
-        let score = 0;
-
-        if (text.includes("back") || text.includes("rear") || text.includes("environment")) {
-          score += 5;
-        }
-        if (text.includes("external") || text.includes("usb")) {
-          score += 3;
-        }
-        if (text.includes("front") || text.includes("facetime")) {
-          score -= 5;
-        }
-
-        return score;
+      isMobileDevice() {
+        return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
       },
       focusInput() {
         el.studentInput.focus();
