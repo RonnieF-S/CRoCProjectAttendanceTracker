@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Build Session Attendance</title>
+  <title>Project Attendance</title>
   <style>
     :root {
       --bg: #f3f5f8;
@@ -215,7 +215,7 @@
   </style>
 </head>
 <body>
-  <h1>Build Session Attendance</h1>
+  <h1 id="pageTitle">Project Attendance</h1>
   <p>Scan a barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
 
   <div class="card status-panel">
@@ -245,8 +245,6 @@
       </div>
       <input id="studentNumber" type="text" placeholder="Enter barcode, student ID, or staff ID">
       <button id="manualBtn">Sign In Manually</button>
-      <div class="muted">Student: `xxx12345678` or `12345678`</div>
-      <div class="muted">Staff: `xxx123456A` or `123456A`</div>
     </div>
   </div>
 
@@ -258,261 +256,347 @@
   </div>
 
   <script>
-    const APPS_SCRIPT_URL = "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec";
+    const APP_CONFIG = {
+      apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
+      duplicateCooldownMs: 3000,
+      maxRecentSignIns: 12,
+    };
 
-    const video = document.getElementById("video");
-    const statusBanner = document.getElementById("statusBanner");
-    const statusMessageEl = document.getElementById("statusMessage");
-    const statusDetailEl = document.getElementById("statusDetail");
-    const studentInput = document.getElementById("studentNumber");
-    const startBtn = document.getElementById("startBtn");
-    const stopBtn = document.getElementById("stopBtn");
-    const manualBtn = document.getElementById("manualBtn");
-    const recentList = document.getElementById("recentList");
-    const recentEmpty = document.getElementById("recentEmpty");
+    const elements = {
+      pageTitle: document.getElementById("pageTitle"),
+      video: document.getElementById("video"),
+      statusBanner: document.getElementById("statusBanner"),
+      statusMessage: document.getElementById("statusMessage"),
+      statusDetail: document.getElementById("statusDetail"),
+      studentInput: document.getElementById("studentNumber"),
+      startBtn: document.getElementById("startBtn"),
+      stopBtn: document.getElementById("stopBtn"),
+      manualBtn: document.getElementById("manualBtn"),
+      recentList: document.getElementById("recentList"),
+      recentEmpty: document.getElementById("recentEmpty"),
+    };
 
-    let stream = null;
-    let scanning = false;
-    let detector = null;
-    let scanInterval = null;
-    let lastScannedValue = "";
-    let lastScannedTime = 0;
-    const recentSignIns = [];
+    const state = {
+      projectName: "Project",
+      recentSignIns: [],
+      stream: null,
+      scanning: false,
+      detector: null,
+      scanInterval: null,
+      lastScannedValue: "",
+      lastScannedTime: 0,
+      currentSessionName: "",
+    };
 
-    function setStatus(message, detail = "", type = "") {
-      statusBanner.className = `status-banner ${type}`.trim();
-      statusMessageEl.textContent = message;
-      statusDetailEl.textContent = detail;
-    }
+    const ui = {
+      setProjectName(projectName) {
+        const safeName = projectName || "Project";
+        state.projectName = safeName;
+        document.title = `${safeName} Attendance`;
+        elements.pageTitle.textContent = `${safeName} Attendance`;
+      },
 
-    function addRecentSignIn(identifier, memberType, method, sessionName) {
-      recentSignIns.unshift({
-        identifier,
-        memberType,
-        method,
-        sessionName,
-        signedInAt: new Date()
-      });
+      setStatus(message, detail = "", type = "") {
+        elements.statusBanner.className = `status-banner ${type}`.trim();
+        elements.statusMessage.textContent = message;
+        elements.statusDetail.textContent = detail;
+      },
 
-      if (recentSignIns.length > 12) {
-        recentSignIns.length = 12;
-      }
+      addRecentSignIn(identifier, memberType, method, sessionName) {
+        state.recentSignIns.unshift({
+          identifier,
+          memberType,
+          method,
+          sessionName,
+          signedInAt: new Date(),
+        });
 
-      renderRecentSignIns();
-    }
-
-    function renderRecentSignIns() {
-      recentList.innerHTML = "";
-
-      if (!recentSignIns.length) {
-        recentList.appendChild(recentEmpty);
-        return;
-      }
-
-      recentSignIns.forEach((entry) => {
-        const li = document.createElement("li");
-        li.className = "history-item";
-
-        const left = document.createElement("div");
-        const name = document.createElement("div");
-        name.className = "history-name";
-        name.textContent = entry.identifier;
-
-        const meta = document.createElement("div");
-        meta.className = "history-meta";
-        meta.textContent = `${entry.memberType} • ${entry.method} • ${entry.sessionName}`;
-
-        left.appendChild(name);
-        left.appendChild(meta);
-
-        const right = document.createElement("div");
-        right.className = "history-meta";
-        right.textContent = entry.signedInAt.toLocaleTimeString();
-
-        li.appendChild(left);
-        li.appendChild(right);
-        recentList.appendChild(li);
-      });
-    }
-
-    function jsonpRequest(params) {
-      return new Promise((resolve, reject) => {
-        const callbackName = "jsonp_cb_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
-        const script = document.createElement("script");
-
-        params.callback = callbackName;
-
-        const query = new URLSearchParams(params).toString();
-        const url = `${APPS_SCRIPT_URL}?${query}`;
-
-        window[callbackName] = function(response) {
-          resolve(response);
-          cleanup();
-        };
-
-        script.onerror = function() {
-          reject(new Error("Request failed."));
-          cleanup();
-        };
-
-        function cleanup() {
-          delete window[callbackName];
-          if (script.parentNode) {
-            script.parentNode.removeChild(script);
-          }
+        if (state.recentSignIns.length > APP_CONFIG.maxRecentSignIns) {
+          state.recentSignIns.length = APP_CONFIG.maxRecentSignIns;
         }
 
-        script.src = url;
-        document.body.appendChild(script);
-      });
-    }
+        this.renderRecentSignIns();
+      },
 
-    function normalizeIdentifier(rawValue) {
-      const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
-      const identifier = cleaned.length > 3 ? cleaned.slice(3) : cleaned;
+      renderRecentSignIns() {
+        elements.recentList.innerHTML = "";
 
-      if (/^\d{8}$/.test(identifier)) {
-        return { identifier: identifier, memberType: "Student" };
-      }
-
-      if (/^\d{6}[A-Z]$/.test(identifier)) {
-        return { identifier: identifier, memberType: "Staff" };
-      }
-
-      throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
-    }
-
-    async function submitStudent(rawValue, method) {
-      try {
-        const normalized = normalizeIdentifier(rawValue);
-        setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`, "");
-
-        const result = await jsonpRequest({
-          action: "signin",
-          studentNumber: normalized.identifier,
-          method: method
-        });
-
-        if (result.success) {
-          setStatus(
-            "Sign-in recorded",
-            `${normalized.memberType} ${normalized.identifier} recorded. Session: ${result.session}`,
-            "success"
-          );
-          addRecentSignIn(
-            result.studentNumber || normalized.identifier,
-            normalized.memberType,
-            method,
-            result.session || "Current session"
-          );
-        } else {
-          setStatus("Sign-in failed", result.message, "error");
-        }
-      } catch (err) {
-        setStatus("Sign-in failed", err.message, "error");
-      }
-    }
-
-    async function startScanner() {
-      if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
-        setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
-        return;
-      }
-
-      if (!("BarcodeDetector" in window)) {
-        setStatus("Scanner unavailable", "Barcode scanning is not supported in this browser. Use manual entry.", "error");
-        return;
-      }
-
-      try {
-        const formats = await BarcodeDetector.getSupportedFormats();
-        detector = new BarcodeDetector({
-          formats: formats.includes("code_128")
-            ? ["code_128", "ean_13", "ean_8", "qr_code"]
-            : formats
-        });
-
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false
-        });
-
-        video.srcObject = stream;
-        scanning = true;
-        setStatus("Scanner ready", "Point the camera at the student card barcode.", "");
-
-        scanInterval = setInterval(scanFrame, 500);
-      } catch (err) {
-        setStatus("Camera unavailable", `Could not start camera: ${err.message}`, "error");
-      }
-    }
-
-    async function scanFrame() {
-      if (!scanning || !detector) return;
-      if (video.readyState < 2) return;
-
-      try {
-        const barcodes = await detector.detect(video);
-
-        if (!barcodes.length) return;
-
-        const rawValue = (barcodes[0].rawValue || "").trim();
-        if (!rawValue) return;
-
-        const now = Date.now();
-        if (rawValue === lastScannedValue && now - lastScannedTime < 3000) {
+        if (!state.recentSignIns.length) {
+          elements.recentList.appendChild(elements.recentEmpty);
           return;
         }
 
-        lastScannedValue = rawValue;
-        lastScannedTime = now;
+        state.recentSignIns.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "history-item";
 
-        await submitStudent(rawValue, "barcode");
-      } catch (err) {
-        console.error(err);
-      }
-    }
+          const left = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "history-name";
+          name.textContent = entry.identifier;
 
-    function stopScanner() {
-      scanning = false;
+          const meta = document.createElement("div");
+          meta.className = "history-meta";
+          meta.textContent = `${entry.memberType} • ${entry.method} • ${entry.sessionName}`;
 
-      if (scanInterval) {
-        clearInterval(scanInterval);
-        scanInterval = null;
-      }
+          const right = document.createElement("div");
+          right.className = "history-meta";
+          right.textContent = entry.signedInAt.toLocaleTimeString();
 
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-      }
+          left.appendChild(name);
+          left.appendChild(meta);
+          item.appendChild(left);
+          item.appendChild(right);
+          elements.recentList.appendChild(item);
+        });
+      },
+    };
 
-      video.srcObject = null;
-      setStatus("Camera stopped", "Manual entry is still available.", "");
-    }
+    const api = {
+      jsonp(params) {
+        return new Promise((resolve, reject) => {
+          const callbackName = `jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+          const script = document.createElement("script");
+          const query = new URLSearchParams({ ...params, callback: callbackName }).toString();
 
-    function submitManual() {
-      const value = studentInput.value.trim();
+          window[callbackName] = function(response) {
+            cleanup();
+            resolve(response);
+          };
 
-      if (!value) {
-        setStatus("No value entered", "Please enter a student number or barcode.", "error");
-        return;
-      }
+          script.onerror = function() {
+            cleanup();
+            reject(new Error("Request failed."));
+          };
 
-      submitStudent(value, "manual");
-      studentInput.value = "";
-    }
+          function cleanup() {
+            delete window[callbackName];
+            if (script.parentNode) {
+              script.parentNode.removeChild(script);
+            }
+          }
 
-    startBtn.addEventListener("click", startScanner);
-    stopBtn.addEventListener("click", stopScanner);
-    manualBtn.addEventListener("click", submitManual);
+          script.src = `${APP_CONFIG.apiUrl}?${query}`;
+          document.body.appendChild(script);
+        });
+      },
 
-    studentInput.addEventListener("keydown", function(event) {
-      if (event.key === "Enter") {
-        submitManual();
-      }
-    });
+      async fetchCurrentSession() {
+        return this.jsonp({ action: "session" });
+      },
 
-    renderRecentSignIns();
+      async fetchConfig() {
+        return this.jsonp({ action: "config" });
+      },
+
+      async signIn(identifier, method) {
+        return this.jsonp({
+          action: "signin",
+          studentNumber: identifier,
+          method,
+        });
+      },
+    };
+
+    const ids = {
+      normalize(rawValue) {
+        const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
+        const candidate = cleaned.length > 3 ? cleaned.slice(3) : cleaned;
+
+        if (/^\d{8}$/.test(candidate)) {
+          return { identifier: candidate, memberType: "Student" };
+        }
+
+        if (/^\d{6}[A-Z]$/.test(candidate)) {
+          return { identifier: candidate, memberType: "Staff" };
+        }
+
+        throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
+      },
+    };
+
+    const scanner = {
+      async start() {
+        if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
+          ui.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
+          return;
+        }
+
+        if (!("BarcodeDetector" in window)) {
+          ui.setStatus("Scanner unavailable", "Barcode scanning is not supported in this browser. Use manual entry.", "error");
+          return;
+        }
+
+        try {
+          const formats = await BarcodeDetector.getSupportedFormats();
+          state.detector = new BarcodeDetector({
+            formats: formats.includes("code_128") ? ["code_128", "ean_13", "ean_8", "qr_code"] : formats,
+          });
+
+          state.stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+            audio: false,
+          });
+
+          elements.video.srcObject = state.stream;
+          state.scanning = true;
+          ui.setStatus(
+            "Scanner ready",
+            state.currentSessionName
+              ? `Current session: ${state.currentSessionName}`
+              : "Point the camera at the member barcode.",
+            ""
+          );
+
+          state.scanInterval = window.setInterval(() => {
+            this.scanFrame();
+          }, 500);
+        } catch (error) {
+          ui.setStatus("Camera unavailable", `Could not start camera: ${error.message}`, "error");
+        }
+      },
+
+      stop() {
+        state.scanning = false;
+
+        if (state.scanInterval) {
+          clearInterval(state.scanInterval);
+          state.scanInterval = null;
+        }
+
+        if (state.stream) {
+          state.stream.getTracks().forEach((track) => track.stop());
+          state.stream = null;
+        }
+
+        elements.video.srcObject = null;
+        ui.setStatus("Camera stopped", "Manual entry is still available.", "");
+      },
+
+      async scanFrame() {
+        if (!state.scanning || !state.detector || elements.video.readyState < 2) {
+          return;
+        }
+
+        try {
+          const barcodes = await state.detector.detect(elements.video);
+          if (!barcodes.length) {
+            return;
+          }
+
+          const rawValue = String(barcodes[0].rawValue || "").trim();
+          if (!rawValue) {
+            return;
+          }
+
+          const now = Date.now();
+          if (rawValue === state.lastScannedValue && now - state.lastScannedTime < APP_CONFIG.duplicateCooldownMs) {
+            return;
+          }
+
+          state.lastScannedValue = rawValue;
+          state.lastScannedTime = now;
+
+          await app.submit(rawValue, "barcode");
+        } catch (error) {
+          console.error(error);
+        }
+      },
+    };
+
+    const app = {
+      async init() {
+        ui.renderRecentSignIns();
+        this.bindEvents();
+        await this.loadConfig();
+        await this.refreshSessionStatus();
+      },
+
+      bindEvents() {
+        elements.startBtn.addEventListener("click", () => scanner.start());
+        elements.stopBtn.addEventListener("click", () => scanner.stop());
+        elements.manualBtn.addEventListener("click", () => this.submitManual());
+        elements.studentInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            this.submitManual();
+          }
+        });
+      },
+
+      async loadConfig() {
+        try {
+          const result = await api.fetchConfig();
+          if (result.success && result.projectName) {
+            ui.setProjectName(result.projectName);
+          }
+        } catch (_error) {
+          // Keep the default page title if config loading fails.
+        }
+      },
+
+      async refreshSessionStatus() {
+        try {
+          const result = await api.fetchCurrentSession();
+          if (!result.success || !result.session) {
+            throw new Error(result.message || "No active session matches the current day and time.");
+          }
+
+          ui.setProjectName(result.projectName);
+          state.currentSessionName = result.session.sessionName || "";
+          ui.setStatus(
+            "Ready",
+            `${result.session.sessionName} • ${result.session.sessionTimes} • ${result.session.day}`,
+            ""
+          );
+        } catch (error) {
+          state.currentSessionName = "";
+          ui.setStatus("Backend configuration error", error.message, "error");
+        }
+      },
+
+      async submit(rawValue, method) {
+        try {
+          const normalized = ids.normalize(rawValue);
+          ui.setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`, "");
+
+          const result = await api.signIn(normalized.identifier, method);
+          if (!result.success) {
+            throw new Error(result.message || "Sign-in failed.");
+          }
+
+          state.currentSessionName = result.session || state.currentSessionName;
+          ui.setStatus(
+            result.duplicate ? "Already signed in" : "Sign-in recorded",
+            `${normalized.memberType} ${normalized.identifier} • ${result.session} • ${result.sessionTimes || ""}`.trim(),
+            result.duplicate ? "error" : "success"
+          );
+
+          if (!result.duplicate) {
+            ui.addRecentSignIn(
+              result.studentNumber || normalized.identifier,
+              normalized.memberType,
+              method,
+              result.session || "Current session"
+            );
+          }
+        } catch (error) {
+          ui.setStatus("Sign-in failed", error.message, "error");
+        }
+      },
+
+      submitManual() {
+        const value = elements.studentInput.value.trim();
+        if (!value) {
+          ui.setStatus("No value entered", "Please enter a student number or barcode.", "error");
+          return;
+        }
+
+        this.submit(value, "manual");
+        elements.studentInput.value = "";
+      },
+    };
+
+    app.init();
   </script>
 </body>
 </html>
