@@ -390,20 +390,7 @@
           return;
         }
         try {
-          const hints = new Map();
-          hints.set(window.ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
-            window.ZXingBrowser.BarcodeFormat.CODE_128,
-            window.ZXingBrowser.BarcodeFormat.CODE_39,
-            window.ZXingBrowser.BarcodeFormat.CODABAR,
-            window.ZXingBrowser.BarcodeFormat.ITF,
-            window.ZXingBrowser.BarcodeFormat.EAN_13,
-            window.ZXingBrowser.BarcodeFormat.EAN_8,
-            window.ZXingBrowser.BarcodeFormat.UPC_A,
-            window.ZXingBrowser.BarcodeFormat.UPC_E
-          ]);
-          hints.set(window.ZXingBrowser.DecodeHintType.TRY_HARDER, true);
-
-          this.codeReader = new window.ZXingBrowser.BrowserMultiFormatReader(hints);
+          this.codeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
           const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
           const preferredDevice = this.pickBestCamera(devices);
           const constraints = preferredDevice ? {
