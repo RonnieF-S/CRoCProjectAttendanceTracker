@@ -66,12 +66,18 @@
       gap: 14px;
     }
 
-    video {
+    #reader {
       width: 100%;
       height: 240px;
       background: black;
       border-radius: 12px;
       border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    #reader video {
+      width: 100%;
+      height: 100%;
       object-fit: cover;
     }
 
@@ -230,7 +236,7 @@
   <div class="scanner-layout">
     <div class="card scan-panel">
       <h2>Barcode Scanner</h2>
-      <video id="video" autoplay playsinline></video>
+      <div id="reader"></div>
       <div class="button-row">
         <button id="startBtn">Start Camera</button>
         <button id="stopBtn">Stop Camera</button>
@@ -255,7 +261,7 @@
     </ul>
   </div>
 
-  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script>
     const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
@@ -265,7 +271,7 @@
 
     const el = {
       pageTitle: document.getElementById("pageTitle"),
-      video: document.getElementById("video"),
+      reader: document.getElementById("reader"),
       statusBanner: document.getElementById("statusBanner"),
       statusMessage: document.getElementById("statusMessage"),
       statusDetail: document.getElementById("statusDetail"),
@@ -280,8 +286,7 @@
     const app = {
       recentSignIns: [],
       scanning: false,
-      codeReader: null,
-      scannerControls: null,
+      html5QrCode: null,
       lastScannedValue: "",
       lastScannedTime: 0,
       currentSessionName: "",
@@ -386,14 +391,15 @@
           this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
           return;
         }
-        if (!window.ZXingBrowser || !window.ZXingBrowser.BrowserMultiFormatReader) {
+        if (!window.Html5Qrcode) {
           this.setStatus("Scanner unavailable", "Barcode scanning library did not load. Use manual entry.", "error");
           return;
         }
         try {
-          this.codeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
-          const constraints = await this.buildCameraConstraints();
-
+          if (!this.html5QrCode) {
+            this.html5QrCode = new Html5Qrcode("reader");
+          }
+          const cameraConfig = await this.buildCameraConfig();
           this.scanning = true;
           this.setStatus(
             "Scanner ready",
@@ -401,21 +407,12 @@
               ? `Current session: ${this.currentSessionName}`
               : "Point the camera at the member barcode."
           );
-
-          this.scannerControls = await this.codeReader.decodeFromConstraints(constraints, el.video, (result, error) => {
-            if (!this.scanning) {
-              return;
-            }
-
-            if (result && result.text) {
-              this.handleScan(result.text);
-              return;
-            }
-
-            if (error && !this.isIgnorableScanError(error)) {
-              console.error(error);
-            }
-          });
+          await this.html5QrCode.start(
+            cameraConfig.camera,
+            cameraConfig.config,
+            (decodedText) => this.handleScan(decodedText),
+            () => {}
+          );
         } catch (error) {
           this.stopScanner();
           this.setStatus(
@@ -427,15 +424,13 @@
       },
       stopScanner() {
         this.scanning = false;
-        if (this.scannerControls) {
-          this.scannerControls.stop();
-          this.scannerControls = null;
+        if (this.html5QrCode) {
+          this.html5QrCode.stop().catch(() => {}).then(() => {
+            if (el.reader) {
+              el.reader.innerHTML = "";
+            }
+          });
         }
-        if (this.codeReader) {
-          this.codeReader.reset();
-          this.codeReader = null;
-        }
-        el.video.srcObject = null;
         this.setStatus("Camera stopped", "Manual entry is still available.");
       },
       async handleScan(rawValue) {
@@ -453,10 +448,10 @@
         this.lastScannedTime = now;
         await this.submit(value, "barcode");
       },
-      async buildCameraConstraints() {
+      async buildCameraConfig() {
         let devices = [];
         try {
-          devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+          devices = await Html5Qrcode.getCameras();
         } catch (_error) {
           devices = [];
         }
@@ -464,30 +459,23 @@
         const preferredDevice = this.pickBestCamera(devices);
         if (preferredDevice) {
           return {
-            video: {
-              deviceId: { exact: preferredDevice.deviceId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
+            camera: { deviceId: { exact: preferredDevice.id } },
+            config: {
+              fps: 10,
+              qrbox: { width: 420, height: 180 },
+              aspectRatio: 1.7777778
             },
-            audio: false
           };
         }
 
         return {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+          camera: { facingMode: "environment" },
+          config: {
+            fps: 10,
+            qrbox: { width: 420, height: 180 },
+            aspectRatio: 1.7777778
           },
-          audio: false
         };
-      },
-      isIgnorableScanError(error) {
-        if (!error) {
-          return true;
-        }
-        const name = String(error.name || "");
-        return name === "NotFoundException" || name === "ChecksumException" || name === "FormatException";
       },
       pickBestCamera(devices) {
         if (!devices || !devices.length) {
@@ -501,7 +489,7 @@
         return ranked[0];
       },
       cameraScore(label) {
-        const text = String(label || "").toLowerCase();
+        const text = String((label && (label.label || label.id)) || "").toLowerCase();
         let score = 0;
 
         if (text.includes("back") || text.includes("rear") || text.includes("environment")) {
