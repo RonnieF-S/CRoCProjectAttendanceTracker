@@ -216,7 +216,7 @@
 </head>
 <body>
   <h1 id="pageTitle">Project Attendance</h1>
-  <p>Scan a barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
+  <p>Scan a student card barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
 
   <div class="card status-panel">
     <h2>Sign-In Status</h2>
@@ -255,14 +255,15 @@
     </ul>
   </div>
 
+  <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
   <script>
-    const APP_CONFIG = {
+    const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
       duplicateCooldownMs: 3000,
-      maxRecentSignIns: 12,
+      recentLimit: 12
     };
 
-    const elements = {
+    const el = {
       pageTitle: document.getElementById("pageTitle"),
       video: document.getElementById("video"),
       statusBanner: document.getElementById("statusBanner"),
@@ -276,147 +277,101 @@
       recentEmpty: document.getElementById("recentEmpty"),
     };
 
-    const state = {
-      projectName: "Project",
+    const app = {
       recentSignIns: [],
       stream: null,
       scanning: false,
-      detector: null,
-      scanInterval: null,
+      codeReader: null,
       lastScannedValue: "",
       lastScannedTime: 0,
       currentSessionName: "",
-    };
-
-    const ui = {
       setProjectName(projectName) {
-        const safeName = projectName || "Project";
-        state.projectName = safeName;
-        document.title = `${safeName} Attendance`;
-        elements.pageTitle.textContent = `${safeName} Attendance`;
+        const name = projectName || "Project";
+        document.title = `${name} Attendance`;
+        el.pageTitle.textContent = `${name} Attendance`;
       },
-
       setStatus(message, detail = "", type = "") {
-        elements.statusBanner.className = `status-banner ${type}`.trim();
-        elements.statusMessage.textContent = message;
-        elements.statusDetail.textContent = detail;
+        el.statusBanner.className = `status-banner ${type}`.trim();
+        el.statusMessage.textContent = message;
+        el.statusDetail.textContent = detail;
       },
-
-      addRecentSignIn(identifier, memberType, method, sessionName) {
-        state.recentSignIns.unshift({
+      sessionDetail(result) {
+        return [result.session || this.currentSessionName, result.sessionTimes, result.day].filter(Boolean).join(" • ");
+      },
+      addRecent(identifier, memberType, method, sessionName) {
+        this.recentSignIns.unshift({
           identifier,
           memberType,
           method,
           sessionName,
-          signedInAt: new Date(),
+          signedInAt: new Date()
         });
-
-        if (state.recentSignIns.length > APP_CONFIG.maxRecentSignIns) {
-          state.recentSignIns.length = APP_CONFIG.maxRecentSignIns;
+        if (this.recentSignIns.length > CONFIG.recentLimit) {
+          this.recentSignIns.length = CONFIG.recentLimit;
         }
-
-        this.renderRecentSignIns();
       },
-
       renderRecentSignIns() {
-        elements.recentList.innerHTML = "";
-
-        if (!state.recentSignIns.length) {
-          elements.recentList.appendChild(elements.recentEmpty);
+        el.recentList.innerHTML = "";
+        if (!this.recentSignIns.length) {
+          el.recentList.appendChild(el.recentEmpty);
           return;
         }
-
-        state.recentSignIns.forEach((entry) => {
+        this.recentSignIns.forEach((entry) => {
           const item = document.createElement("li");
           item.className = "history-item";
-
           const left = document.createElement("div");
           const name = document.createElement("div");
           name.className = "history-name";
           name.textContent = entry.identifier;
-
           const meta = document.createElement("div");
           meta.className = "history-meta";
           meta.textContent = `${entry.memberType} • ${entry.method} • ${entry.sessionName}`;
-
           const right = document.createElement("div");
           right.className = "history-meta";
           right.textContent = entry.signedInAt.toLocaleTimeString();
-
           left.appendChild(name);
           left.appendChild(meta);
           item.appendChild(left);
           item.appendChild(right);
-          elements.recentList.appendChild(item);
+          el.recentList.appendChild(item);
         });
       },
-    };
-
-    const api = {
-      jsonp(params) {
+      request(params) {
         return new Promise((resolve, reject) => {
           const callbackName = `jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
           const script = document.createElement("script");
           const query = new URLSearchParams({ ...params, callback: callbackName }).toString();
-
           window[callbackName] = function(response) {
             cleanup();
             resolve(response);
           };
-
           script.onerror = function() {
             cleanup();
             reject(new Error("Request failed."));
           };
-
           function cleanup() {
             delete window[callbackName];
             if (script.parentNode) {
               script.parentNode.removeChild(script);
             }
           }
-
-          script.src = `${APP_CONFIG.apiUrl}?${query}`;
+          script.src = `${CONFIG.apiUrl}?${query}`;
           document.body.appendChild(script);
         });
       },
-
-      async fetchCurrentSession() {
-        return this.jsonp({ action: "session" });
-      },
-
-      async fetchConfig() {
-        return this.jsonp({ action: "config" });
-      },
-
-      async signIn(identifier, method) {
-        return this.jsonp({
-          action: "signin",
-          studentNumber: identifier,
-          method,
-        });
-      },
-    };
-
-    const ids = {
       normalize(rawValue) {
         const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
-
         if (/^\d{8}$/.test(cleaned)) {
           return { identifier: cleaned, memberType: "Student" };
         }
-
         if (/^\d{6}[A-Z]$/.test(cleaned)) {
           return { identifier: cleaned, memberType: "Staff" };
         }
-
         if (cleaned.length > 3) {
           const suffix = cleaned.slice(3);
-
           if (/^\d{8}$/.test(suffix)) {
             return { identifier: suffix, memberType: "Student" };
           }
-
           if (/^\d{6}[A-Z]$/.test(suffix)) {
             return { identifier: suffix, memberType: "Staff" };
           }
@@ -424,199 +379,142 @@
 
         throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
       },
-    };
-
-    const scanner = {
-      async start() {
+      async startScanner() {
         if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
-          ui.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
+          this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
           return;
         }
-
-        if (!("BarcodeDetector" in window)) {
-          ui.setStatus("Scanner unavailable", "Barcode scanning is not supported in this browser. Use manual entry.", "error");
+        if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) {
+          this.setStatus("Scanner unavailable", "Barcode scanning library did not load. Use manual entry.", "error");
           return;
         }
-
         try {
-          const formats = await BarcodeDetector.getSupportedFormats();
-          state.detector = new BarcodeDetector({
-            formats: formats.includes("code_128") ? ["code_128", "ean_13", "ean_8", "qr_code"] : formats,
+          const hints = new Map();
+          hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+            window.ZXing.BarcodeFormat.CODE_128,
+            window.ZXing.BarcodeFormat.CODE_39,
+            window.ZXing.BarcodeFormat.EAN_13,
+            window.ZXing.BarcodeFormat.EAN_8
+          ]);
+
+          this.codeReader = new window.ZXing.BrowserMultiFormatReader(hints);
+          this.scanning = true;
+          this.setStatus("Scanner ready", this.currentSessionName ? `Current session: ${this.currentSessionName}` : "Point the camera at the member barcode.");
+
+          await this.codeReader.decodeFromVideoDevice(null, el.video, (result, error) => {
+            if (!this.scanning) {
+              return;
+            }
+
+            if (result && result.text) {
+              this.handleScan(result.text);
+              return;
+            }
+
+            if (error &&
+                !(error instanceof window.ZXing.NotFoundException) &&
+                !(error instanceof window.ZXing.ChecksumException) &&
+                !(error instanceof window.ZXing.FormatException)) {
+              console.error(error);
+            }
           });
-
-          state.stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" },
-            audio: false,
-          });
-
-          elements.video.srcObject = state.stream;
-          state.scanning = true;
-          ui.setStatus(
-            "Scanner ready",
-            state.currentSessionName
-              ? `Current session: ${state.currentSessionName}`
-              : "Point the camera at the member barcode.",
-            ""
-          );
-
-          state.scanInterval = window.setInterval(() => {
-            this.scanFrame();
-          }, 500);
         } catch (error) {
-          ui.setStatus("Camera unavailable", `Could not start camera: ${error.message}`, "error");
+          this.setStatus("Camera unavailable", `Could not start camera: ${error.message}`, "error");
         }
       },
-
-      stop() {
-        state.scanning = false;
-
-        if (state.scanInterval) {
-          clearInterval(state.scanInterval);
-          state.scanInterval = null;
+      stopScanner() {
+        this.scanning = false;
+        if (this.codeReader) {
+          this.codeReader.reset();
+          this.codeReader = null;
         }
-
-        if (state.stream) {
-          state.stream.getTracks().forEach((track) => track.stop());
-          state.stream = null;
-        }
-
-        elements.video.srcObject = null;
-        ui.setStatus("Camera stopped", "Manual entry is still available.", "");
+        this.setStatus("Camera stopped", "Manual entry is still available.");
       },
-
-      async scanFrame() {
-        if (!state.scanning || !state.detector || elements.video.readyState < 2) {
+      async handleScan(rawValue) {
+        const value = String(rawValue || "").trim();
+        if (!value) {
           return;
         }
 
+        const now = Date.now();
+        if (value === this.lastScannedValue && now - this.lastScannedTime < CONFIG.duplicateCooldownMs) {
+          return;
+        }
+
+        this.lastScannedValue = value;
+        this.lastScannedTime = now;
+        await this.submit(value, "barcode");
+      },
+      async loadConfig() {
         try {
-          const barcodes = await state.detector.detect(elements.video);
-          if (!barcodes.length) {
-            return;
+          const result = await this.request({ action: "config" });
+          if (result.success && result.projectName) {
+            this.setProjectName(result.projectName);
           }
-
-          const rawValue = String(barcodes[0].rawValue || "").trim();
-          if (!rawValue) {
-            return;
+        } catch (_error) {}
+      },
+      async refreshSessionStatus() {
+        try {
+          const result = await this.request({ action: "session" });
+          if (!result.success || !result.session) {
+            throw new Error(result.message || "No active session matches the current day and time.");
           }
-
-          const now = Date.now();
-          if (rawValue === state.lastScannedValue && now - state.lastScannedTime < APP_CONFIG.duplicateCooldownMs) {
-            return;
-          }
-
-          state.lastScannedValue = rawValue;
-          state.lastScannedTime = now;
-
-          await app.submit(rawValue, "barcode");
+          this.setProjectName(result.projectName);
+          this.currentSessionName = result.session.sessionName || "";
+          this.setStatus("Ready", `${result.session.sessionName} • ${result.session.sessionTimes} • ${result.session.day}`);
         } catch (error) {
-          console.error(error);
+          this.currentSessionName = "";
+          this.setStatus("Backend configuration error", error.message, "error");
         }
       },
-    };
-
-    const app = {
-      async init() {
-        ui.renderRecentSignIns();
-        this.bindEvents();
-        await this.loadConfig();
-        await this.refreshSessionStatus();
+      async submit(rawValue, method) {
+        try {
+          const normalized = this.normalize(rawValue);
+          this.setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`);
+          const result = await this.request({ action: "signin", studentNumber: normalized.identifier, method });
+          if (result.duplicate) {
+            this.setStatus("Already signed in", `${normalized.memberType} ${normalized.identifier} is already recorded. ${this.sessionDetail(result)}`, "error");
+            return;
+          }
+          if (!result.success) {
+            throw new Error([result.message || "Sign-in failed.", this.sessionDetail(result)].filter(Boolean).join(" "));
+          }
+          this.currentSessionName = result.session || this.currentSessionName;
+          this.setStatus("Sign-in recorded", `${normalized.memberType} ${normalized.identifier} • ${result.session} • ${result.sessionTimes || ""}`.trim(), "success");
+          this.addRecent(result.studentNumber || normalized.identifier, normalized.memberType, method, result.session || "Current session");
+          this.renderRecentSignIns();
+        } catch (error) {
+          this.setStatus("Sign-in failed", error.message, "error");
+        }
       },
-
-      bindEvents() {
-        elements.startBtn.addEventListener("click", () => scanner.start());
-        elements.stopBtn.addEventListener("click", () => scanner.stop());
-        elements.manualBtn.addEventListener("click", () => this.submitManual());
-        elements.studentInput.addEventListener("keydown", (event) => {
+      submitManual() {
+        const value = el.studentInput.value.trim();
+        if (!value) {
+          this.setStatus("No value entered", "Please enter a student number or barcode.", "error");
+          return;
+        }
+        this.submit(value, "manual");
+        el.studentInput.value = "";
+      },
+      bind() {
+        el.startBtn.addEventListener("click", () => this.startScanner());
+        el.stopBtn.addEventListener("click", () => this.stopScanner());
+        el.manualBtn.addEventListener("click", () => this.submitManual());
+        el.studentInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             this.submitManual();
           }
         });
       },
-
-      async loadConfig() {
-        try {
-          const result = await api.fetchConfig();
-          if (result.success && result.projectName) {
-            ui.setProjectName(result.projectName);
-          }
-        } catch (_error) {
-          // Keep the default page title if config loading fails.
-        }
-      },
-
-      async refreshSessionStatus() {
-        try {
-          const result = await api.fetchCurrentSession();
-          if (!result.success || !result.session) {
-            throw new Error(result.message || "No active session matches the current day and time.");
-          }
-
-          ui.setProjectName(result.projectName);
-          state.currentSessionName = result.session.sessionName || "";
-          ui.setStatus(
-            "Ready",
-            `${result.session.sessionName} • ${result.session.sessionTimes} • ${result.session.day}`,
-            ""
-          );
-        } catch (error) {
-          state.currentSessionName = "";
-          ui.setStatus("Backend configuration error", error.message, "error");
-        }
-      },
-
-      async submit(rawValue, method) {
-        try {
-          const normalized = ids.normalize(rawValue);
-          ui.setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`, "");
-
-          const result = await api.signIn(normalized.identifier, method);
-          if (result.duplicate) {
-            ui.setStatus(
-              "Already signed in",
-              `${normalized.memberType} ${normalized.identifier} is already recorded for ${result.session}.`,
-              "error"
-            );
-            return;
-          }
-
-          if (!result.success) {
-            throw new Error(result.message || "Sign-in failed.");
-          }
-
-          state.currentSessionName = result.session || state.currentSessionName;
-          ui.setStatus(
-            result.duplicate ? "Already signed in" : "Sign-in recorded",
-            `${normalized.memberType} ${normalized.identifier} • ${result.session} • ${result.sessionTimes || ""}`.trim(),
-            result.duplicate ? "error" : "success"
-          );
-
-          if (!result.duplicate) {
-            ui.addRecentSignIn(
-              result.studentNumber || normalized.identifier,
-              normalized.memberType,
-              method,
-              result.session || "Current session"
-            );
-          }
-        } catch (error) {
-          ui.setStatus("Sign-in failed", error.message, "error");
-        }
-      },
-
-      submitManual() {
-        const value = elements.studentInput.value.trim();
-        if (!value) {
-          ui.setStatus("No value entered", "Please enter a student number or barcode.", "error");
-          return;
-        }
-
-        this.submit(value, "manual");
-        elements.studentInput.value = "";
-      },
+      async start() {
+        await this.loadConfig();
+        await this.refreshSessionStatus();
+        this.renderRecentSignIns();
+        this.bind();
+      }
     };
 
-    app.init();
+    app.start();
   </script>
 </body>
 </html>
