@@ -90,6 +90,10 @@ function setupSpreadsheet() {
 function signInMember_(rawIdentifier, method) {
   setupSpreadsheet();
 
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
   var normalizedIdentifier = normalizeIdentifier_(rawIdentifier);
   var session = getCurrentSession_();
   var attendanceSheet = getAttendanceSheet_();
@@ -109,7 +113,7 @@ function signInMember_(rawIdentifier, method) {
     removeRowsByIndexDescending_(attendanceSheet, duplicateRows.slice(1));
 
     return {
-      success: true,
+      success: false,
       duplicate: true,
       studentNumber: normalizedIdentifier,
       message: "Already signed in for this session.",
@@ -144,6 +148,9 @@ function signInMember_(rawIdentifier, method) {
     logBookHours: session.logBookHours,
     timestamp: timestampText,
   };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getCurrentSession_() {
@@ -162,8 +169,8 @@ function getCurrentSession_() {
     var projectName = cleanString_(row[0]);
     var sessionName = cleanString_(row[1]);
     var day = cleanString_(row[2]);
-    var startTime = cleanString_(row[3]);
-    var endTime = cleanString_(row[4]);
+    var startTime = formatTimeValue_(row[3]);
+    var endTime = formatTimeValue_(row[4]);
     var logBookHours = row[5];
     var active = isSessionActive_(row[6]);
 
@@ -344,7 +351,7 @@ function findDuplicateRows_(sheet, dateText, identifier, sessionName) {
 
   for (var i = 0; i < values.length; i += 1) {
     var row = values[i];
-    var rowDate = cleanString_(row[1]);
+    var rowDate = formatDateValue_(row[1]);
     var rowIdentifier = cleanString_(row[2]).toUpperCase();
     var rowSessionName = cleanString_(row[4]);
 
@@ -373,7 +380,7 @@ function removeRowsByIndexDescending_(sheet, rowIndexes) {
 }
 
 function parseTimeToMinutes_(value) {
-  var text = cleanString_(value);
+  var text = formatTimeValue_(value);
   var match = text.match(/^(\d{1,2}):(\d{2})$/);
   if (!match) {
     throw new Error("Session time must use HH:MM format, for example 17:00.");
@@ -400,4 +407,37 @@ function isSessionActive_(value) {
 
 function cleanString_(value) {
   return String(value === null || value === undefined ? "" : value).trim();
+}
+
+function formatTimeValue_(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "HH:mm");
+  }
+
+  if (typeof value === "number" && isFinite(value)) {
+    var totalMinutes = Math.round(value * 24 * 60);
+    var hours = Math.floor(totalMinutes / 60) % 24;
+    var minutes = totalMinutes % 60;
+    return pad2_(hours) + ":" + pad2_(minutes);
+  }
+
+  var text = cleanString_(value);
+  var longMatch = text.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  if (longMatch) {
+    return pad2_(Number(longMatch[1])) + ":" + pad2_(Number(longMatch[2]));
+  }
+
+  return text;
+}
+
+function formatDateValue_(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+
+  return cleanString_(value);
+}
+
+function pad2_(value) {
+  return value < 10 ? "0" + value : String(value);
 }

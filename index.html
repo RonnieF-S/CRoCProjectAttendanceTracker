@@ -401,14 +401,25 @@
     const ids = {
       normalize(rawValue) {
         const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
-        const candidate = cleaned.length > 3 ? cleaned.slice(3) : cleaned;
 
-        if (/^\d{8}$/.test(candidate)) {
-          return { identifier: candidate, memberType: "Student" };
+        if (/^\d{8}$/.test(cleaned)) {
+          return { identifier: cleaned, memberType: "Student" };
         }
 
-        if (/^\d{6}[A-Z]$/.test(candidate)) {
-          return { identifier: candidate, memberType: "Staff" };
+        if (/^\d{6}[A-Z]$/.test(cleaned)) {
+          return { identifier: cleaned, memberType: "Staff" };
+        }
+
+        if (cleaned.length > 3) {
+          const suffix = cleaned.slice(3);
+
+          if (/^\d{8}$/.test(suffix)) {
+            return { identifier: suffix, memberType: "Student" };
+          }
+
+          if (/^\d{6}[A-Z]$/.test(suffix)) {
+            return { identifier: suffix, memberType: "Staff" };
+          }
         }
 
         throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
@@ -560,6 +571,15 @@
           ui.setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`, "");
 
           const result = await api.signIn(normalized.identifier, method);
+          if (result.duplicate) {
+            ui.setStatus(
+              "Already signed in",
+              `${normalized.memberType} ${normalized.identifier} is already recorded for ${result.session}.`,
+              "error"
+            );
+            return;
+          }
+
           if (!result.success) {
             throw new Error(result.message || "Sign-in failed.");
           }
