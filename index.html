@@ -30,7 +30,7 @@
       font-family: Arial, sans-serif;
       max-width: 1280px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 18px 24px 20px;
       background:
         radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 26%),
         var(--bg);
@@ -49,8 +49,8 @@
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 16px;
-      padding: 20px;
-      margin: 18px 0;
+      padding: 18px;
+      margin: 14px 0;
       box-shadow: var(--shadow);
     }
 
@@ -68,7 +68,7 @@
 
     video {
       width: 100%;
-      min-height: 320px;
+      height: 240px;
       background: black;
       border-radius: 12px;
       border: 1px solid var(--border);
@@ -121,10 +121,10 @@
     .status-banner {
       border-radius: 16px;
       border: 2px solid var(--border);
-      padding: 18px;
-      min-height: 120px;
+      padding: 16px 18px;
+      min-height: 96px;
       display: grid;
-      gap: 8px;
+      gap: 6px;
       align-content: center;
       background: #f8fafc;
     }
@@ -149,7 +149,7 @@
     }
 
     .status-message {
-      font-size: 28px;
+      font-size: 24px;
       line-height: 1.2;
       font-weight: 800;
       color: inherit;
@@ -173,7 +173,7 @@
       display: flex;
       justify-content: space-between;
       gap: 12px;
-      padding: 12px 14px;
+      padding: 10px 12px;
       border-radius: 12px;
       background: #f8fafc;
       border: 1px solid var(--border);
@@ -209,7 +209,7 @@
       }
 
       .status-message {
-        font-size: 24px;
+        font-size: 22px;
       }
     }
   </style>
@@ -217,6 +217,15 @@
 <body>
   <h1>Build Session Attendance</h1>
   <p>Scan a barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
+
+  <div class="card status-panel">
+    <h2>Sign-In Status</h2>
+    <div id="statusBanner" class="status-banner">
+      <div class="status-label">Scanner status</div>
+      <div id="statusMessage" class="status-message">Ready.</div>
+      <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+    </div>
+  </div>
 
   <div class="scanner-layout">
     <div class="card scan-panel">
@@ -238,15 +247,6 @@
       <button id="manualBtn">Sign In Manually</button>
       <div class="muted">Student: `xxx12345678` or `12345678`</div>
       <div class="muted">Staff: `xxx123456A` or `123456A`</div>
-    </div>
-  </div>
-
-  <div class="card status-panel">
-    <h2>Sign-In Status</h2>
-    <div id="statusBanner" class="status-banner">
-      <div class="status-label">Scanner status</div>
-      <div id="statusMessage" class="status-message">Ready.</div>
-      <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
     </div>
   </div>
 
@@ -369,24 +369,14 @@
 
     function normalizeIdentifier(rawValue) {
       const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
-      const fullStudentMatch = cleaned.match(/^.{3}(\d{8})$/);
-      if (fullStudentMatch) {
-        return { identifier: fullStudentMatch[1], memberType: "Student" };
+      const identifier = cleaned.length > 3 ? cleaned.slice(3) : cleaned;
+
+      if (/^\d{8}$/.test(identifier)) {
+        return { identifier: identifier, memberType: "Student" };
       }
 
-      const shortStudentMatch = cleaned.match(/^(\d{8})$/);
-      if (shortStudentMatch) {
-        return { identifier: shortStudentMatch[1], memberType: "Student" };
-      }
-
-      const fullStaffMatch = cleaned.match(/^.{3}(\d{6}[A-Z])$/);
-      if (fullStaffMatch) {
-        return { identifier: fullStaffMatch[1], memberType: "Staff" };
-      }
-
-      const shortStaffMatch = cleaned.match(/^(\d{6}[A-Z])$/);
-      if (shortStaffMatch) {
-        return { identifier: shortStaffMatch[1], memberType: "Staff" };
+      if (/^\d{6}[A-Z]$/.test(identifier)) {
+        return { identifier: identifier, memberType: "Staff" };
       }
 
       throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
