@@ -16,6 +16,9 @@
       --success-bg: #dcfce7;
       --success-border: #22c55e;
       --success-text: #166534;
+      --signout-bg: #f3e8ff;
+      --signout-border: #8b5cf6;
+      --signout-text: #6d28d9;
       --error-bg: #fee2e2;
       --error-border: #ef4444;
       --error-text: #991b1b;
@@ -231,6 +234,12 @@
       background: var(--success-bg);
       border-color: var(--success-border);
       color: var(--success-text);
+    }
+
+    .status-banner.signout {
+      background: var(--signout-bg);
+      border-color: var(--signout-border);
+      color: var(--signout-text);
     }
 
     .status-banner.error {
@@ -468,6 +477,7 @@
       storagePrefix: "croc-attendance-v3",
       syncRetryMs: 4000,
       pollIntervalMs: 15000,
+      localRetentionDays: 7,
       scannerLibraryUrls: [
         "https://unpkg.com/html5-qrcode",
         "https://cdn.jsdelivr.net/npm/html5-qrcode"
@@ -539,6 +549,7 @@
       successResetTimer: null,
       audioContext: null,
       scannerLibraryPromise: null,
+      pendingSessionClear: false,
 
       async ensureScannerLibrary() {
         if (window.Html5Qrcode) {
@@ -943,6 +954,7 @@
           this.eventQueue = [];
           this.recentActivity = [];
           this.lastMemberAction = {};
+          this.pendingSessionClear = false;
           this.renderRoster();
           this.renderRecentActivity();
           this.setSyncNote("No active session to sync.", "");
@@ -963,7 +975,9 @@
         this.recentActivity = rebuilt.recentActivity;
         this.eventQueue = rebuilt.eventQueue;
         this.lastMemberAction = rebuilt.lastMemberAction;
+        this.pendingSessionClear = !!(persisted && persisted.pendingSessionClear);
         this.persistSessionState();
+        this.finalizeSessionClearIfReady();
         this.renderRoster();
         this.renderRecentActivity();
         this.renderSyncStatus();
@@ -1153,17 +1167,78 @@
         return `${CONFIG.storagePrefix}:last-known-session`;
       },
 
+      sessionRetentionMs() {
+        return CONFIG.localRetentionDays * 24 * 60 * 60 * 1000;
+      },
+
+      cleanupExpiredSessionState() {
+        const cutoffMs = Date.now() - this.sessionRetentionMs();
+        const sessionPrefix = `${CONFIG.storagePrefix}:session:`;
+
+        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+          const key = localStorage.key(index);
+          if (!key || (key !== this.lastInfoStorageKey() && key.indexOf(sessionPrefix) !== 0)) {
+            continue;
+          }
+
+          const payload = this.loadStoredJson(key);
+          const storedMs = this.sessionStateTimestampMs(payload);
+          if (storedMs === null || storedMs < cutoffMs) {
+            localStorage.removeItem(key);
+          }
+        }
+      },
+
+      loadStoredJson(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          return null;
+        }
+      },
+
+      sessionStateTimestampMs(payload) {
+        if (!payload || typeof payload !== "object") {
+          return null;
+        }
+
+        const savedAtMs = this.parseTimestampMs(payload.savedAt);
+        if (savedAtMs !== null) {
+          return savedAtMs;
+        }
+
+        if (payload.sessionDate) {
+          const sessionDateMs = this.parseTimestampMs(`${payload.sessionDate}T00:00:00`);
+          if (sessionDateMs !== null) {
+            return sessionDateMs;
+          }
+        }
+
+        return null;
+      },
+
       loadSessionState(sessionKey) {
         if (!sessionKey) {
           return null;
         }
 
-        try {
-          const raw = localStorage.getItem(this.sessionStorageKey(sessionKey));
-          return raw ? JSON.parse(raw) : null;
-        } catch (_error) {
-          return null;
+        return this.loadStoredJson(this.sessionStorageKey(sessionKey));
+      },
+
+      clearPersistedSessionState(sessionKey = this.sessionKey) {
+        if (!sessionKey) {
+          return;
         }
+        localStorage.removeItem(this.sessionStorageKey(sessionKey));
+      },
+
+      finalizeSessionClearIfReady() {
+        if (!this.pendingSessionClear || this.eventQueue.length) {
+          return;
+        }
+        this.clearPersistedSessionState();
+        this.pendingSessionClear = false;
       },
 
       persistSessionState() {
@@ -1179,6 +1254,8 @@
           roster: this.roster,
           eventQueue: this.eventQueue,
           recentActivity: this.recentActivity,
+          pendingSessionClear: this.pendingSessionClear,
+          savedAt: new Date().toISOString(),
           lastKnownSessionInfo: {
             currentSessionOpen: this.currentSessionOpen,
             nextSession: this.nextSession,
@@ -1191,6 +1268,7 @@
         localStorage.setItem(this.lastInfoStorageKey(), JSON.stringify({
           projectName: this.projectName,
           sessionDate: this.sessionDate,
+          savedAt: new Date().toISOString(),
           sessionStatus: {
             isOpen: this.currentSessionOpen,
             currentSession: this.currentSession,
@@ -1322,6 +1400,8 @@
           const now = new Date(Date.now() + index);
           this.applyLocalEvent(this.buildForcedSignOutEvent(entry, now));
         });
+        this.pendingSessionClear = true;
+        this.persistSessionState();
 
         this.setStatus(
           "Session ended",
@@ -1359,6 +1439,7 @@
           const syncedIds = new Set(result.syncedEventIds || []);
           this.eventQueue = this.eventQueue.filter((event) => !syncedIds.has(event.event_id));
           this.persistSessionState();
+          this.finalizeSessionClearIfReady();
           this.renderSyncStatus();
 
           if (this.eventQueue.length) {
@@ -1523,7 +1604,7 @@
           this.setStatus(
             this.eventTypeLabel(decision.event.event_type),
             `${normalized.memberType} ${normalized.identifier} • ${this.currentSession.sessionName} • Saved locally and syncing in background.`,
-            "success"
+            decision.event.event_type === "sign_out" ? "signout" : "success"
           );
           if (method === "barcode") {
             this.flashScannerSuccess();
@@ -1664,6 +1745,7 @@
 
       start() {
         this.deviceId = this.loadDeviceId();
+        this.cleanupExpiredSessionState();
         this.ensureScannerLibrary().catch(() => {});
         this.setUnlocked(false);
         this.setAuthMessage("Enter the attendance password before scanning or signing members in or out.");
