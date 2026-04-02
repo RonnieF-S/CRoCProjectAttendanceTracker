@@ -7,15 +7,10 @@ var SHEETS = {
 var CONFIG_HEADERS = [
   "Project Name",
   "Password",
-  "Minimum Attendance Minutes",
-  "Duplicate Cooldown Seconds",
-  "Recent Limit",
-  "Sync Batch Size",
   "Session Name",
   "Day",
   "Start Time",
   "End Time",
-  "Log book hours",
   "Active",
 ];
 
@@ -42,7 +37,6 @@ var ATTENDANCE_HEADERS = [
   "Day",
   "Sign In",
   "Sign Out",
-  "Attendance Minutes",
   "Attendance Hours",
   "Notes",
 ];
@@ -51,6 +45,12 @@ var CONFIG_CACHE_KEY = "configRows:v2";
 var CONFIG_CACHE_TTL_SECONDS = 30;
 var SHEETS_READY_CACHE_KEY = "sheetsReady:v2";
 var SHEETS_READY_CACHE_TTL_SECONDS = 300;
+var SETTINGS = {
+  duplicateCooldownSeconds: 10,
+  recentLimit: 12,
+  syncBatchSize: 10,
+};
+var SCRIPT_TIMEZONE = Session.getScriptTimeZone();
 
 function doGet(e) {
   ensureSpreadsheet_();
@@ -64,7 +64,7 @@ function doGet(e) {
     return respond_(callback, {
       success: false,
       message: error.message || "Unknown error.",
-      projectName: getSettings_().projectName,
+      projectName: getProjectName_(),
       sessionStatus: getSessionStatus_(),
     });
   }
@@ -97,8 +97,8 @@ function setupSpreadsheet() {
 
   if (configSheet.getLastRow() === 1) {
     configSheet.getRange(2, 1, 2, CONFIG_HEADERS.length).setValues([
-      ["Example Project", "CR0C", 15, 3, 12, 10, "Tuesday Build", "Tuesday", "17:00", "20:00", 3, true],
-      ["Example Project", "CR0C", 15, 3, 12, 10, "Thursday Build", "Thursday", "18:00", "20:00", 2, true],
+      ["Example Project", "CR0C", "Tuesday Build", "Tuesday", "17:00", "20:00", true],
+      ["Example Project", "CR0C", "Thursday Build", "Thursday", "18:00", "20:00", true],
     ]);
     clearConfigCache_();
   }
@@ -136,7 +136,6 @@ function bootstrapResponse_() {
     success: true,
     projectName: settings.projectName,
     settings: {
-      minimumAttendanceMinutes: settings.minimumAttendanceMinutes,
       duplicateCooldownMs: settings.duplicateCooldownSeconds * 1000,
       recentLimit: settings.recentLimit,
       syncBatchSize: settings.syncBatchSize,
@@ -243,7 +242,6 @@ function rebuildAttendance_() {
       summary.day,
       summary.sign_in,
       summary.sign_out,
-      summary.attendance_minutes,
       summary.attendance_hours,
       notesByKey[key] || "",
     ]);
@@ -286,7 +284,6 @@ function summarizeAttendanceGroup_(events) {
     day: first.day,
     sign_in: "",
     sign_out: "",
-    attendance_minutes: 0,
     attendance_hours: 0,
   };
   var openTimestamp = "";
@@ -304,12 +301,16 @@ function summarizeAttendanceGroup_(events) {
 
     if (events[i].event_type === "sign_out" && openTimestamp) {
       summary.sign_out = events[i].raw_timestamp;
-      summary.attendance_minutes += Math.max(0, minutesBetween_(openTimestamp, events[i].timestamp));
+      summary.attendance_hours += Math.max(0, minutesBetween_(openTimestamp, events[i].timestamp)) / 60;
       openTimestamp = "";
     }
   }
 
-  summary.attendance_hours = Number((summary.attendance_minutes / 60).toFixed(2));
+  if (openTimestamp && sessionHasEnded_(summary.date, summary.session_times)) {
+    summary.attendance_hours = Math.max(summary.attendance_hours, 1);
+  }
+
+  summary.attendance_hours = Number(summary.attendance_hours.toFixed(2));
   return summary;
 }
 
@@ -322,7 +323,7 @@ function getAttendanceNotesByKey_(sheet) {
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
   for (var i = 0; i < rows.length; i += 1) {
     var key = [text_(rows[i][0]), text_(rows[i][1]).toUpperCase(), text_(rows[i][3])].join("|");
-    notesByKey[key] = text_(rows[i][10]);
+    notesByKey[key] = text_(rows[i][9]);
   }
   return notesByKey;
 }
@@ -396,7 +397,6 @@ function parseEvents_(eventsJson) {
 }
 
 function normalizeIncomingEvent_(event) {
-  var settings = getSettings_();
   var memberId = normalizeIdentifier_(event.member_id || event.memberId);
   var eventType = text_(event.event_type || event.eventType);
   var timestamp = text_(event.timestamp);
@@ -419,15 +419,15 @@ function normalizeIncomingEvent_(event) {
   return {
     event_id: text_(event.event_id || event.eventId),
     member_id: memberId,
-    project_name: text_(event.project_name || event.projectName) || settings.projectName,
+    project_name: text_(event.project_name || event.projectName) || getProjectName_(),
     session_name: sessionName,
     event_type: eventType,
-    timestamp: Utilities.formatDate(parsedTimestamp, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss"),
-    date: Utilities.formatDate(parsedTimestamp, Session.getScriptTimeZone(), "yyyy-MM-dd"),
+    timestamp: Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "yyyy-MM-dd HH:mm:ss"),
+    date: Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "yyyy-MM-dd"),
     device_id: text_(event.device_id || event.deviceId),
     method: text_(event.method) || "barcode",
     session_times: text_(event.session_times || event.sessionTimes),
-    day: text_(event.day) || Utilities.formatDate(parsedTimestamp, Session.getScriptTimeZone(), "EEEE"),
+    day: text_(event.day) || Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "EEEE"),
   };
 }
 
@@ -442,9 +442,9 @@ function getCurrentSession_() {
 function getSessionStatus_() {
   var rows = getConfigRows_();
   var now = new Date();
-  var day = Utilities.formatDate(now, Session.getScriptTimeZone(), "EEEE");
-  var currentMinutes = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "H")) * 60 +
-    Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "m"));
+  var day = Utilities.formatDate(now, SCRIPT_TIMEZONE, "EEEE");
+  var currentMinutes = Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "H")) * 60 +
+    Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "m"));
   var currentDayIndex = dayIndex_(day);
   var nextSession = null;
   var nextOffset = null;
@@ -478,12 +478,12 @@ function getSessionStatus_() {
 }
 
 function sessionFromRow_(row) {
-  var sessionName = text_(row[6]);
-  var sessionDay = text_(row[7]);
-  var startTime = text_(row[8]);
-  var endTime = text_(row[9]);
+  var sessionName = text_(row[2]);
+  var sessionDay = text_(row[3]);
+  var startTime = text_(row[4]);
+  var endTime = text_(row[5]);
 
-  if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[11])) {
+  if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[6])) {
     return null;
   }
 
@@ -491,7 +491,7 @@ function sessionFromRow_(row) {
   var endMinutes = toMinutes_(endTime);
 
   return {
-    projectName: text_(row[0]) || getSettings_().projectName,
+    projectName: text_(row[0]) || getProjectName_(),
     sessionName: sessionName,
     sessionTimes: startTime + " - " + endTime,
     day: sessionDay,
@@ -500,19 +500,25 @@ function sessionFromRow_(row) {
     dayIndex: dayIndex_(sessionDay),
     startMinutes: startMinutes,
     endMinutes: endMinutes,
-    logBookHours: Number(text_(row[10])) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
   };
 }
 
 function getSettings_() {
   return {
-    projectName: getFirstConfigValue_(0, "Project"),
-    password: getFirstConfigValue_(1, ""),
-    minimumAttendanceMinutes: toPositiveInteger_(getFirstConfigValue_(2, "15"), 15),
-    duplicateCooldownSeconds: toPositiveInteger_(getFirstConfigValue_(3, "3"), 3),
-    recentLimit: toPositiveInteger_(getFirstConfigValue_(4, "12"), 12),
-    syncBatchSize: toPositiveInteger_(getFirstConfigValue_(5, "10"), 10),
+    projectName: getProjectName_(),
+    password: getAccessPassword_(),
+    duplicateCooldownSeconds: SETTINGS.duplicateCooldownSeconds,
+    recentLimit: SETTINGS.recentLimit,
+    syncBatchSize: SETTINGS.syncBatchSize,
   };
+}
+
+function getProjectName_() {
+  return getFirstConfigValue_(0, "Project");
+}
+
+function getAccessPassword_() {
+  return getFirstConfigValue_(1, "");
 }
 
 function getConfigRows_() {
@@ -536,14 +542,9 @@ function getConfigRows_() {
       text_(rawRows[i][1]),
       text_(rawRows[i][2]),
       text_(rawRows[i][3]),
-      text_(rawRows[i][4]),
-      text_(rawRows[i][5]),
+      toTimeText_(rawRows[i][4]),
+      toTimeText_(rawRows[i][5]),
       text_(rawRows[i][6]),
-      text_(rawRows[i][7]),
-      toTimeText_(rawRows[i][8]),
-      toTimeText_(rawRows[i][9]),
-      text_(rawRows[i][10]),
-      text_(rawRows[i][11]),
     ]);
   }
 
@@ -563,7 +564,7 @@ function getFirstConfigValue_(columnIndex, fallback) {
 }
 
 function verifyPassword_(password) {
-  var configuredPassword = getSettings_().password;
+  var configuredPassword = getAccessPassword_();
   if (!configuredPassword) {
     throw new Error("Backend access password is not configured.");
   }
@@ -635,7 +636,7 @@ function toMinutes_(value) {
 
 function toTimeText_(value) {
   if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), "HH:mm");
+    return Utilities.formatDate(value, SCRIPT_TIMEZONE, "HH:mm");
   }
   if (typeof value === "number" && isFinite(value)) {
     var totalMinutes = Math.round(value * 24 * 60);
@@ -649,12 +650,12 @@ function toTimeText_(value) {
 
 function toDateText_(value) {
   return Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())
-    ? Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd")
+    ? Utilities.formatDate(value, SCRIPT_TIMEZONE, "yyyy-MM-dd")
     : text_(value);
 }
 
 function todayDateText_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  return Utilities.formatDate(new Date(), SCRIPT_TIMEZONE, "yyyy-MM-dd");
 }
 
 function minutesUntilSession_(currentDayIndex, currentMinutes, sessionDayIndex, startMinutes) {
@@ -668,9 +669,29 @@ function minutesBetween_(startText, endText) {
   return Math.round((parseTimestampMs_(endText) - parseTimestampMs_(startText)) / 60000);
 }
 
-function toPositiveInteger_(value, fallback) {
-  var parsed = Number(value);
-  return parsed > 0 ? Math.round(parsed) : fallback;
+function sessionHasEnded_(dateText, sessionTimes) {
+  var endTime = sessionEndTime_(sessionTimes);
+  if (!endTime) {
+    return false;
+  }
+
+  var today = todayDateText_();
+  if (today > dateText) {
+    return true;
+  }
+  if (today < dateText) {
+    return false;
+  }
+
+  var now = new Date();
+  var currentMinutes = Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "H")) * 60 +
+    Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "m"));
+  return currentMinutes >= toMinutes_(endTime);
+}
+
+function sessionEndTime_(sessionTimes) {
+  var parts = text_(sessionTimes).split(" - ");
+  return parts.length === 2 ? parts[1] : "";
 }
 
 function isActive_(value) {

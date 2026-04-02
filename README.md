@@ -1,343 +1,303 @@
 # CRoC Project Attendance Tracker
 
-Attendance tracker for Curtin Robotics Club project build sessions.
+This attendance tracker is designed for one Curtin Robotics Club project at a time.
 
-This project has two parts:
+Each project gets:
 
-- a static frontend in [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
-- a Google Apps Script backend in [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs)
+- one Google Sheet
+- one Google Apps Script web app bound to that sheet
+- one deployed frontend page using [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
 
-The frontend is hosted from GitHub Pages. The backend runs as a Google Apps Script web app attached to a Google Sheet.
+The system uses a sign-in / sign-out event model:
 
-## What it does
+- the frontend records scans locally first
+- the frontend keeps the current roster in browser storage so refreshes do not lose state
+- the frontend syncs events to Google Sheets in the background
+- the backend stores raw events in `Events`
+- the backend rebuilds a derived `Attendance` sheet from those events
 
-- scans student card barcodes in the browser
-- accepts manual entry as a fallback
-- supports both student and staff IDs
-- writes attendance rows into a Google Sheet
-- matches each sign-in to the current configured session
-- rejects duplicate sign-ins in the same session
-- requires the access password stored in the backend `Config` sheet
-- uses the project name from the Google Sheet to label the frontend page
+## Files To Edit
 
-## Supported ID formats
+- [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs)
+  - paste this into Apps Script
+  - optionally edit backend `SETTINGS`
+- [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
+  - set the Apps Script `apiUrl`
+  - deploy this through GitHub Pages
 
-Student IDs:
+## Supported IDs
+
+Manual entry accepts:
 
 - `12345678`
-- `xxx12345678`
-
-Staff IDs:
-
 - `123456A`
+
+Barcode scans also accept a 3-character prefix:
+
+- `xxx12345678`
 - `xxx123456A`
 
-For scanned barcodes, the first 3 characters are ignored and the remaining student or staff ID is used.
+The first 3 characters are ignored when present.
 
-## Repository files
+## Setup Overview
 
-- [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html): frontend UI and browser-side scanner logic
-- [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs): Apps Script backend copied into the Google Sheet script editor
+To set up a new project:
 
-## Architecture
+1. Create a new Google Sheet for that project.
+2. Add the backend code in Apps Script.
+3. Run `setupSpreadsheet()`.
+4. Fill in the `Config` tab.
+5. Deploy the Apps Script as a web app.
+6. Put that web app URL into [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html).
+7. Push the frontend to GitHub Pages.
 
-1. A user opens the GitHub Pages frontend.
-2. The frontend calls the Apps Script web app with JSONP.
-3. The Apps Script backend reads the current session from the `Config` sheet.
-4. If the current day and time match a configured active session, the sign-in is recorded in the `Attendance` sheet.
-5. If the same ID is already present for the same date and session, the backend rejects the duplicate.
+## 1. Create The Google Sheet
 
-## Backend setup
+Create one Google Sheet per project.
 
-### 1. Create the Google Sheet
-
-Create a new Google Sheet for the project attendance data.
-
-Recommended sheet name:
+Example:
 
 - `Drone Team Attendance`
 
-This spreadsheet must contain two tabs:
-
-- `Attendance`
-- `Config`
-
-You do not need to create them manually if you run `setupSpreadsheet()` in Apps Script. The script will create them for you.
-
-### 2. Create the Apps Script project
+## 2. Add The Backend
 
 1. Open the Google Sheet.
 2. Go to `Extensions` -> `Apps Script`.
-3. Delete the default sample code.
-4. Copy the contents of [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs) into the Apps Script editor.
+3. Delete the sample code.
+4. Paste in the contents of [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs).
 5. Save the script.
 
-### 3. Run the sheet setup function
+## 3. Run Initial Setup
 
 In Apps Script:
 
-1. Select the `setupSpreadsheet` function.
-2. Click `Run`.
-3. Authorize the script if Google prompts you.
+1. Select `setupSpreadsheet`
+2. Click `Run`
+3. Approve the script if prompted
 
-This creates the required tabs and header rows if they do not already exist.
+This creates the required tabs:
 
-## Google Sheet structure
+- `Config`
+- `Events`
+- `Attendance`
 
-### Attendance tab
-
-The `Attendance` tab must use this exact header row:
-
-```text
-Timestamp | Date | Student Number | Method | Session Name | Session Times | Day | Log book hours | Notes
-```
-
-What each column means:
-
-- `Timestamp`: full timestamp when the sign-in happened
-- `Date`: sign-in date in `yyyy-MM-dd`
-- `Student Number`: normalized student or staff ID
-- `Method`: `barcode` or `manual`
-- `Session Name`: matched session name from `Config`
-- `Session Times`: matched start and end times from `Config`
-- `Day`: matched weekday from `Config`
-- `Log book hours`: credited hours from `Config`
-- `Notes`: left blank by the app and available for manual notes later
-
-### Config tab
+## 4. Fill In The Config Tab
 
 The `Config` tab must use this exact header row:
 
 ```text
-Project Name | Password | Session Name | Day | Start Time | End Time | Log book hours | Active
+Project Name | Password | Session Name | Day | Start Time | End Time | Active
 ```
-
-Each row describes one recurring session window.
 
 Example:
 
 ```text
-Drone Team | CR0C | Drone Team Build Session | Tuesday  | 16:30 | 21:00 | 2 | TRUE
-Drone Team | CR0C | CRoC Build Night         | Thursday | 17:40 | 21:00 | 2 | TRUE
-Drone Team | CR0C | Test                     | Thursday | 00:00 | 23:00 | 5 | TRUE
+Drone Team | CR0C | Drone Team Build Session | Tuesday  | 16:30 | 21:00 | TRUE
+Drone Team | CR0C | CRoC Build Night         | Thursday | 17:40 | 21:00 | TRUE
 ```
 
-Column details:
+Column meanings:
 
-- `Project Name`: project label shown in the frontend title, for example `Drone Team`
-- `Password`: access password required by the frontend before sign-ins can begin
-- `Session Name`: the session label written into attendance rows
-- `Day`: full weekday name, for example `Monday`, `Tuesday`, `Thursday`
-- `Start Time`: start time in 24 hour format, for example `16:30`
-- `End Time`: end time in 24 hour format, for example `21:00`
-- `Log book hours`: numeric hours to credit for the session
-- `Active`: `TRUE` to enable the row, `FALSE` to disable it
+- `Project Name`: shown in the page title and heading
+- `Password`: required to unlock the frontend
+- `Session Name`: label for that session
+- `Day`: full weekday name such as `Tuesday`
+- `Start Time`: `HH:MM`
+- `End Time`: `HH:MM`
+- `Active`: `TRUE` to enable the session row
 
-Use the same password value on each active row. The backend uses the first non-empty `Password` value it finds.
+Use the same `Project Name` and `Password` on each active row for that project sheet.
 
-## Important time format rules
+## 5. Review Backend Settings
 
-Use `HH:MM` time values in the `Config` tab.
+The backend operational settings are near the top of [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs):
 
-Examples:
-
-- `00:00`
-- `16:30`
-- `21:00`
-
-Avoid typing text such as:
-
-- `4:30pm`
-- `9 PM`
-
-The backend can also handle Google Sheets time cells, but `HH:MM` is the safest way to enter session times.
-
-## How session matching works
-
-When a sign-in arrives, the backend:
-
-1. reads the current local day and time from the script timezone
-2. reads all rows in the `Config` tab
-3. finds the first active row where:
-   - `Day` matches today
-   - current time is within `Start Time <= now < End Time`
-4. uses that row to populate:
-   - `Session Name`
-   - `Session Times`
-   - `Day`
-   - `Log book hours`
-
-If no active row matches, sign-in fails with:
-
-```text
-No active session matches the current day and time.
-```
-
-## Duplicate handling
-
-Duplicates are checked by:
-
-- `Date`
-- `Student Number`
-- `Session Name`
-
-That means the same person can sign in:
-
-- once for a Tuesday build session
-- once again on a different date
-- once again in a different session
-
-But they cannot sign in twice for the same session on the same day.
-
-The backend rejects duplicate sign-ins and the frontend displays a clear `Already signed in` message.
-
-The backend also includes a maintenance function:
-
-- `cleanupAttendanceDuplicates()`
-
-You can run that manually in Apps Script if older duplicate records already exist in the sheet.
-
-## Deploying the backend web app
-
-After the script is saved:
-
-1. Click `Deploy` -> `New deployment`
-2. Choose type `Web app`
-3. Set:
-   - `Execute as`: `Me`
-   - `Who has access`: whichever option matches your use case, typically `Anyone`
-4. Click `Deploy`
-5. Copy the web app URL
-
-If you later change the backend code:
-
-1. save the code
-2. open `Deploy` -> `Manage deployments`
-3. edit the existing web app deployment
-4. choose `New version`
-5. deploy again
-
-The URL normally stays the same, but the deployment must be updated to a new version or the old code will continue running.
-
-## Connecting the frontend to the backend
-
-Open [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html) and update:
-
-```js
-const CONFIG = {
-  apiUrl: "YOUR_APPS_SCRIPT_WEB_APP_URL",
-  duplicateCooldownMs: 3000,
-  recentLimit: 12
+```javascript
+var SETTINGS = {
+  duplicateCooldownSeconds: 10,
+  recentLimit: 12,
+  syncBatchSize: 10,
 };
 ```
 
-Replace `apiUrl` with the deployed Apps Script web app URL.
+What they control:
 
-The frontend does not store the access password. Users enter the password on the page, and the backend verifies it against the `Password` column in the `Config` tab.
+- `duplicateCooldownSeconds`: ignores immediate repeat scans of the same card
+- `recentLimit`: how many recent events the frontend shows
+- `syncBatchSize`: how many queued events are sent to the backend at once
 
-After that, commit and push the frontend so GitHub Pages serves the updated backend endpoint.
+The default values are sufficient for normal use. You usually do not need to change them.
 
-## Frontend deployment
+If you do want to adjust them:
 
-The frontend is a single static HTML file:
+1. Edit the `SETTINGS` object in [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs)
+2. Save the Apps Script project
+3. Redeploy the web app as a new version
+
+## 6. Deploy The Backend
+
+After saving the script:
+
+1. Click `Deploy` -> `New deployment`
+2. Choose `Web app`
+3. Set:
+   - `Execute as`: `Me`
+   - `Who has access`: the option that matches how you want to run the tracker
+4. Click `Deploy`
+5. Copy the web app URL
+
+If you change the backend later:
+
+1. Save the Apps Script code
+2. Open `Deploy` -> `Manage deployments`
+3. Edit the web app deployment
+4. Select `New version`
+5. Deploy again
+
+The URL usually stays the same, but the deployment version must be updated.
+
+## 7. Connect The Frontend
+
+Open [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html) and set the backend URL in the `CONFIG` constant:
+
+```javascript
+const CONFIG = {
+  apiUrl: "YOUR_APPS_SCRIPT_WEB_APP_URL",
+  storagePrefix: "croc-attendance-v3",
+  syncRetryMs: 4000,
+  pollIntervalMs: 15000
+};
+```
+
+Replace `apiUrl` with your deployed Apps Script web app URL.
+
+The frontend does not store the password. Users enter it on the page, and the backend verifies it against the `Config` tab.
+
+## 8. Deploy The Frontend
+
+The frontend is a single file:
 
 - [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
 
-If GitHub Pages is already configured for the repository, pushing updates to the published branch will redeploy the site automatically.
+If GitHub Pages is already configured:
 
-Typical flow:
+1. Update `index.html`
+2. Commit the change
+3. Push to GitHub
+4. Wait for GitHub Pages to redeploy
 
-1. update `index.html`
-2. commit the changes
-3. push to GitHub
-4. wait for GitHub Pages to redeploy
+## Sheet Structure
 
-## First-time setup checklist
+### Config
 
-1. Create the Google Sheet.
-2. Open `Extensions` -> `Apps Script`.
-3. Paste in [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs).
-4. Run `setupSpreadsheet()`.
-5. Open the `Config` tab and replace the example rows with your real sessions.
-6. Deploy the Apps Script as a web app.
-7. Copy the web app URL.
-8. Update `apiUrl` in [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html).
-9. Push the frontend to GitHub Pages.
-10. Open the site and test a sign-in during an active session.
+Used for project name, password, and session schedule.
 
-## Recommended test procedure
+### Events
+
+The `Events` tab is append-only.
+
+Header:
+
+```text
+Timestamp | Date | Member ID | Event Type | Method | Project Name | Session Name | Session Times | Day | Event ID | Device ID
+```
+
+You should not normally edit this tab manually.
+
+### Attendance
+
+The `Attendance` tab is derived from `Events`.
+
+Header:
+
+```text
+Date | Member ID | Project Name | Session Name | Session Times | Day | Sign In | Sign Out | Attendance Hours | Notes
+```
+
+Notes:
+
+- `Attendance Hours` is calculated as a decimal rounded to 2 decimal places
+- multiple sign-in / sign-out pairs in one session are summed
+- if someone signs in and never signs out, and the session has ended, attendance defaults to `1.00` hour
+- `Notes` is available for manual comments
+
+Do not type attendance rows manually. The backend rebuilds this tab.
+
+## How Session Matching Works
+
+A session is open when:
+
+- `Day` matches today
+- current time is within `Start Time <= now < End Time`
+
+If no session is open:
+
+- the page shows that no session is open
+- the next configured session is shown when available
+- sign-ins are blocked
+
+## Frontend Behavior
+
+The frontend:
+
+- keeps local session state in `localStorage`
+- restores that state after refresh
+- polls the backend periodically so multiple open pages stay reasonably in sync
+- shows the current session
+- shows a live `Currently Signed In` roster
+- shows recent sign-in / sign-out activity
+
+## First-Time Test
 
 Use a wide test session first:
 
 ```text
-Project Name | Password | Session Name | Day      | Start Time | End Time | Log book hours | Active
-Drone Team   | CR0C     | Test         | Thursday | 00:00      | 23:00    | 5              | TRUE
+Project Name | Password | Session Name | Day | Start Time | End Time | Active
+Drone Team   | CR0C     | Test         | Friday | 01:00 | 20:00 | TRUE
 ```
 
 Then test:
 
-1. load the frontend
-2. confirm the page title becomes `Drone Team Attendance`
-3. sign in a student ID
-4. sign in the same ID again
-5. confirm the second sign-in is rejected as a duplicate
+1. Open the frontend page.
+2. Enter the password.
+3. Confirm the title becomes `Drone Team Attendance`.
+4. Scan or enter one member ID.
+5. Confirm they appear in `Currently Signed In`.
+6. Scan the same member again after the duplicate cooldown window and confirm they sign out.
+7. Refresh the page and confirm the roster restores.
+8. Confirm the event appears in `Events`.
+9. Confirm the attendance summary appears in `Attendance`.
 
 ## Troubleshooting
 
-### Error: `Session time must use HH:MM format`
+### Access denied / invalid action
 
-Check the `Config` tab:
+Usually one of these:
 
-- `Start Time` and `End Time` should be valid times
-- preferred format is `HH:MM`
-- examples: `00:00`, `16:30`, `21:00`
+- the frontend `apiUrl` points to the wrong Apps Script deployment
+- the Apps Script code was saved but not redeployed as a new version
+- the page password does not match the `Password` column in `Config`
 
-### Sign-ins are being written in the wrong columns
+### Session time must use HH:MM format
 
-This usually means the old Apps Script backend is still deployed.
+Use `HH:MM` values in `Config`, for example:
 
-Fix:
+- `01:00`
+- `16:30`
+- `20:00`
 
-1. save the new `Code.gs`
-2. update the deployment to a `New version`
-3. test again
+### The page shows the wrong project name
 
-### Frontend shows the wrong project name
+Check the first non-empty `Project Name` value in the `Config` tab.
 
-Check the `Project Name` column in the `Config` tab.
+### Events are not appearing
 
-The frontend uses the first non-empty `Project Name` value it finds.
+Check:
 
-### Access is denied even though the sheet is configured
+- the Apps Script deployment is current
+- the frontend is using the correct `apiUrl`
+- the session is currently open
 
-Check the `Password` column in the `Config` tab:
+### The roster looks stale
 
-- at least one active row must have a password value
-- the same password should be used across all active rows
-- the password entered on the frontend must match exactly
-
-### Duplicate sign-ins are not being rejected
-
-Check that:
-
-- the backend deployment is the latest version
-- the sign-ins are for the same `Date`
-- the sign-ins are for the same `Session Name`
-- the normalized ID in `Student Number` is identical
-
-You can also run `cleanupAttendanceDuplicates()` to remove historical duplicate rows.
-
-## Operational notes
-
-- Manual entry accepts plain IDs like `12345678` and `123456A`
-- Barcode scanning accepts prefixed values like `xxx12345678` and `xxx123456A`
-- Notes are never overwritten by the app; they remain available for manual editing in the sheet
-
-## Future improvements
-
-Possible next steps if needed:
-
-- split frontend CSS and JS into separate files
-- add an admin page for managing `Config`
-- add audio feedback for success and duplicate scans
-- add a live attendance table pulled from the sheet
+The page restores local state immediately, then syncs and polls the backend. If another device just scanned, wait for the next poll or refresh the page.

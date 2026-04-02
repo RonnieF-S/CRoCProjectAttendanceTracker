@@ -57,24 +57,29 @@
       box-shadow: var(--shadow);
     }
 
-    .top-layout,
+    .page-layout,
+    .status-layout,
     .scanner-layout,
-    .activity-layout {
+    .sidebar-layout {
       display: grid;
       gap: 20px;
       align-items: start;
     }
 
-    .top-layout {
-      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+    .page-layout {
+      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr);
+    }
+
+    .status-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
     }
 
     .scanner-layout {
-      grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+      grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr);
     }
 
-    .activity-layout {
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    .sidebar-layout {
+      gap: 14px;
     }
 
     #reader {
@@ -141,14 +146,14 @@
     .session-banner {
       border-radius: 16px;
       border: 2px solid var(--border);
-      padding: 16px 18px;
+      padding: 12px 14px;
       display: grid;
-      gap: 6px;
+      gap: 4px;
       background: #f8fafc;
     }
 
     .status-banner {
-      min-height: 96px;
+      min-height: 76px;
       align-content: center;
     }
 
@@ -179,14 +184,14 @@
     }
 
     .status-message {
-      font-size: 24px;
+      font-size: 20px;
       line-height: 1.2;
       font-weight: 800;
       color: inherit;
     }
 
     .status-detail {
-      font-size: 15px;
+      font-size: 13px;
       color: inherit;
       opacity: 0.9;
     }
@@ -284,14 +289,19 @@
       display: none;
     }
 
+    .sidebar-panel {
+      min-height: 320px;
+    }
+
     @media (max-width: 980px) {
       body {
         padding: 16px;
       }
 
-      .top-layout,
+      .page-layout,
+      .status-layout,
       .scanner-layout,
-      .activity-layout {
+      .sidebar-layout {
         grid-template-columns: 1fr;
       }
 
@@ -303,7 +313,6 @@
 </head>
 <body>
   <h1 id="pageTitle">Project Attendance</h1>
-  <p>Scan a student card barcode or enter a member ID manually. Scanning signs members in or out for the current session.</p>
 
   <div id="accessCard" class="card">
     <h2>Access</h2>
@@ -314,64 +323,68 @@
     <div id="authMessage" class="auth-message">Enter the attendance password before scanning or signing members in or out.</div>
   </div>
 
-  <div class="top-layout">
-    <div class="card status-panel">
-      <h2>Sign-In Status</h2>
-      <div id="statusBanner" class="status-banner">
-        <div class="status-label">Scanner status</div>
-        <div id="statusMessage" class="status-message">Ready.</div>
-        <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+  <div class="page-layout">
+    <div>
+      <div class="status-layout">
+        <div class="card status-panel">
+          <h2>Sign-In Status</h2>
+          <div id="statusBanner" class="status-banner">
+            <div class="status-label">Scanner status</div>
+            <div id="statusMessage" class="status-message">Ready.</div>
+            <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+          </div>
+        </div>
+
+        <div class="card session-panel">
+          <h2>Current Session</h2>
+          <div id="sessionBanner" class="session-banner">
+            <div class="status-label">Session status</div>
+            <div id="sessionMessage" class="status-message">Locked</div>
+            <div id="sessionDetail" class="status-detail">Enter the attendance password to load session details.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scanner-layout">
+        <div class="card scan-panel">
+          <h2>Student Card Barcode Scanner</h2>
+          <div id="reader"></div>
+          <div class="button-row">
+            <button id="startBtn">Start Camera</button>
+            <button id="stopBtn">Stop Camera</button>
+          </div>
+          <div class="muted">Best used in Chrome on a phone or laptop.</div>
+        </div>
+
+        <div class="card manual-panel">
+          <div>
+            <h2>Manual Entry</h2>
+            <p class="muted">Use this if the barcode cannot be read.</p>
+          </div>
+          <input id="studentNumber" type="text" placeholder="Enter student ID">
+          <button id="manualBtn">Process Scan</button>
+        </div>
       </div>
     </div>
 
-    <div class="card session-panel">
-      <h2>Current Session</h2>
-      <div id="sessionBanner" class="session-banner">
-        <div class="status-label">Session status</div>
-        <div id="sessionMessage" class="status-message">Locked</div>
-        <div id="sessionDetail" class="status-detail">Enter the attendance password to load session details.</div>
+    <div class="sidebar-layout">
+      <div class="card roster-panel sidebar-panel">
+        <div class="panel-header">
+          <h2>Currently Signed In</h2>
+          <div id="rosterCount" class="muted">0 members</div>
+        </div>
+        <div id="syncNote" class="sync-note">Session state will appear here after unlock.</div>
+        <ul id="rosterList" class="roster-list">
+          <li id="rosterEmpty" class="empty-state">No members are currently signed in.</li>
+        </ul>
       </div>
-    </div>
-  </div>
 
-  <div class="scanner-layout">
-    <div class="card scan-panel">
-      <h2>Student Card Barcode Scanner</h2>
-      <div id="reader"></div>
-      <div class="button-row">
-        <button id="startBtn">Start Camera</button>
-        <button id="stopBtn">Stop Camera</button>
+      <div class="card history-panel sidebar-panel">
+        <h2>Recent Activity</h2>
+        <ul id="recentList" class="history-list">
+          <li id="recentEmpty" class="empty-state">No recent activity yet.</li>
+        </ul>
       </div>
-      <div class="muted">Best used in Chrome on a phone or laptop.</div>
-    </div>
-
-    <div class="card manual-panel">
-      <div>
-        <h2>Manual Entry</h2>
-        <p class="muted">Use this if the barcode cannot be read.</p>
-      </div>
-      <input id="studentNumber" type="text" placeholder="Enter student ID">
-      <button id="manualBtn">Process Scan</button>
-    </div>
-  </div>
-
-  <div class="activity-layout">
-    <div class="card roster-panel">
-      <div class="panel-header">
-        <h2>Currently Signed In</h2>
-        <div id="rosterCount" class="muted">0 members</div>
-      </div>
-      <div id="syncNote" class="sync-note">Session state will appear here after unlock.</div>
-      <ul id="rosterList" class="roster-list">
-        <li id="rosterEmpty" class="empty-state">No members are currently signed in.</li>
-      </ul>
-    </div>
-
-    <div class="card history-panel">
-      <h2>Recent Activity</h2>
-      <ul id="recentList" class="history-list">
-        <li id="recentEmpty" class="empty-state">No recent activity yet.</li>
-      </ul>
     </div>
   </div>
 
@@ -380,7 +393,8 @@
     const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
       storagePrefix: "croc-attendance-v3",
-      syncRetryMs: 4000
+      syncRetryMs: 4000,
+      pollIntervalMs: 15000
     };
 
     const el = {
@@ -410,8 +424,7 @@
 
     const app = {
       settings: {
-        minimumAttendanceMinutes: 15,
-        duplicateCooldownMs: 3000,
+        duplicateCooldownMs: 10000,
         recentLimit: 12,
         syncBatchSize: 10
       },
@@ -434,6 +447,8 @@
       keyboardTimer: null,
       syncInFlight: false,
       syncTimer: null,
+      pollTimer: null,
+      pollInFlight: false,
       deviceId: "",
 
       setProjectName(projectName) {
@@ -449,6 +464,7 @@
         el.startBtn.disabled = !unlocked;
         if (!unlocked) {
           this.stopScanner();
+          this.stopPolling();
           el.accessCard.classList.remove("hidden");
         }
       },
@@ -532,6 +548,10 @@
         return /^\d{6}[A-Z]$/.test(identifier) ? "Staff" : "Student";
       },
 
+      eventTypeLabel(eventType) {
+        return eventType === "sign_in" ? "Signed in" : "Signed out";
+      },
+
       formatTimestamp(value) {
         return new Date(value).toLocaleTimeString();
       },
@@ -563,8 +583,7 @@
 
       applyBootstrap(result) {
         this.settings = {
-          minimumAttendanceMinutes: result.settings && result.settings.minimumAttendanceMinutes || 15,
-          duplicateCooldownMs: result.settings && result.settings.duplicateCooldownMs || 3000,
+          duplicateCooldownMs: result.settings && result.settings.duplicateCooldownMs || 10000,
           recentLimit: result.settings && result.settings.recentLimit || 12,
           syncBatchSize: result.settings && result.settings.syncBatchSize || 10
         };
@@ -601,6 +620,36 @@
         this.renderRecentActivity();
         this.renderSyncStatus();
         this.setStatus("Ready", this.sessionSummary(this.currentSession));
+      },
+
+      async pollBackendState() {
+        if (!this.unlocked || this.pollInFlight) {
+          return;
+        }
+
+        this.pollInFlight = true;
+        try {
+          const result = await this.request({ action: "bootstrap" });
+          if (result.success) {
+            this.applyBootstrap(result);
+          }
+        } catch (_error) {
+          // Keep the local roster visible; polling is best-effort.
+        } finally {
+          this.pollInFlight = false;
+        }
+      },
+
+      startPolling() {
+        this.stopPolling();
+        this.pollTimer = window.setInterval(() => this.pollBackendState(), CONFIG.pollIntervalMs);
+      },
+
+      stopPolling() {
+        if (this.pollTimer) {
+          clearInterval(this.pollTimer);
+          this.pollTimer = null;
+        }
       },
 
       mergeEvents(backendEvents, unsyncedEvents) {
@@ -705,7 +754,7 @@
           name.textContent = entry.identifier;
           const meta = document.createElement("div");
           meta.className = "history-meta";
-          meta.textContent = `${entry.memberType} • ${entry.eventType === "sign_in" ? "Signed in" : "Signed out"} • ${entry.sessionName}`;
+          meta.textContent = `${entry.memberType} • ${this.eventTypeLabel(entry.eventType)} • ${entry.sessionName}`;
           const right = document.createElement("div");
           right.className = "history-meta";
           right.textContent = this.formatTimestamp(entry.timestamp);
@@ -807,14 +856,6 @@
         return `${year}-${month}-${day}`;
       },
 
-      minimumAttendanceMs() {
-        return this.settings.minimumAttendanceMinutes * 60 * 1000;
-      },
-
-      formatRemainingMinutes(ms) {
-        return Math.max(1, Math.ceil(ms / 60000));
-      },
-
       buildEvent(member, method) {
         if (!this.currentSessionOpen || !this.currentSession) {
           throw new Error(this.nextSession
@@ -824,15 +865,6 @@
 
         const now = new Date();
         const activeMember = this.roster[member.identifier];
-        if (activeMember) {
-          const elapsed = now.getTime() - new Date(activeMember.signedInAt).getTime();
-          if (elapsed < this.minimumAttendanceMs()) {
-            return {
-              blocked: true,
-              message: `${activeMember.memberType} ${member.identifier} is already signed in. Try again in ${this.formatRemainingMinutes(this.minimumAttendanceMs() - elapsed)} minute${this.formatRemainingMinutes(this.minimumAttendanceMs() - elapsed) === 1 ? "" : "s"}.`
-            };
-          }
-        }
 
         return {
           blocked: false,
@@ -1012,7 +1044,7 @@
 
           this.applyLocalEvent(decision.event);
           this.setStatus(
-            decision.event.event_type === "sign_in" ? "Signed in" : "Signed out",
+            this.eventTypeLabel(decision.event.event_type),
             `${normalized.memberType} ${normalized.identifier} • ${this.currentSession.sessionName} • Saved locally and syncing in background.`,
             "success"
           );
@@ -1029,7 +1061,7 @@
           aspectRatio: 1.7777778
         };
 
-        if (/android|iphone|ipad|ipod/i.test(navigator.userAgent || "")) {
+        if (this.isMobileDevice()) {
           return [
             { camera: { facingMode: { exact: "environment" } }, config: config },
             { camera: { facingMode: "environment" }, config: config },
@@ -1055,6 +1087,10 @@
           { camera: { facingMode: "environment" }, config: config },
           { camera: { facingMode: "user" }, config: config }
         ];
+      },
+
+      isMobileDevice() {
+        return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
       },
 
       focusInput() {
@@ -1134,6 +1170,7 @@
           this.setUnlocked(true);
           this.setAuthMessage("Access granted. Session state loaded.", "success");
           this.applyBootstrap(result);
+          this.startPolling();
           el.passwordInput.value = "";
           this.deviceId = this.deviceId || this.loadDeviceId();
           window.setTimeout(() => {
