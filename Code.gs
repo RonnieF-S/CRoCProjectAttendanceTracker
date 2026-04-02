@@ -26,6 +26,7 @@ var EVENT_HEADERS = [
   "Day",
   "Event ID",
   "Device ID",
+  "Session Key",
 ];
 
 var ATTENDANCE_HEADERS = [
@@ -190,6 +191,7 @@ function syncEvents_(eventsJson) {
         event.day,
         event.event_id,
         event.device_id,
+        event.session_key,
       ]);
     }
 
@@ -221,7 +223,7 @@ function rebuildAttendance_() {
 
   for (var i = 0; i < eventRows.length; i += 1) {
     var event = rowToEvent_(eventRows[i]);
-    var key = [event.date, event.member_id, event.session_name].join("|");
+    var key = attendanceGroupKey_(event.date, event.member_id, event.session_key);
     if (!grouped[key]) {
       grouped[key] = [];
     }
@@ -276,13 +278,15 @@ function summarizeAttendanceGroup_(events) {
   });
 
   var first = events[0];
+  var displaySession = getSessionDisplayByKey_(first.session_key, first.session_name, first.session_times, first.day);
   var summary = {
     date: first.date,
     member_id: first.member_id,
     project_name: first.project_name,
-    session_name: first.session_name,
-    session_times: first.session_times,
-    day: first.day,
+    session_name: displaySession.sessionName,
+    session_key: first.session_key,
+    session_times: displaySession.sessionTimes,
+    day: displaySession.day,
     sign_in: "",
     sign_out: "",
     attendance_hours: 0,
@@ -327,7 +331,11 @@ function getAttendanceNotesByKey_(sheet) {
 
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
   for (var i = 0; i < rows.length; i += 1) {
-    var key = [text_(rows[i][0]), text_(rows[i][1]).toUpperCase(), text_(rows[i][3])].join("|");
+    var key = attendanceGroupKey_(
+      text_(rows[i][0]),
+      text_(rows[i][1]).toUpperCase(),
+      buildSessionKeyFromParts_(text_(rows[i][2]), text_(rows[i][5]), text_(rows[i][4]))
+    );
     notesByKey[key] = text_(rows[i][9]);
   }
   return notesByKey;
@@ -357,12 +365,21 @@ function getEventsForSession_(session, dateText) {
 
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, EVENT_HEADERS.length).getValues();
   var events = [];
+  var sessionKey = session.sessionKey;
 
   for (var i = 0; i < rows.length; i += 1) {
-    if (toDateText_(rows[i][1]) !== dateText || text_(rows[i][6]) !== session.sessionName) {
+    var event = rowToEvent_(rows[i]);
+    var isMatchingSession = event.session_key
+      ? event.session_key === sessionKey
+      : event.session_name === session.sessionName;
+
+    if (event.date !== dateText || !isMatchingSession) {
       continue;
     }
-    events.push(rowToEvent_(rows[i]));
+    event.session_name = session.sessionName;
+    event.session_times = session.sessionTimes;
+    event.day = session.day;
+    events.push(event);
   }
 
   events.sort(function (a, b) {
@@ -386,6 +403,7 @@ function rowToEvent_(row) {
     day: text_(row[8]),
     event_id: text_(row[9]),
     device_id: text_(row[10]),
+    session_key: text_(row[11]) || buildSessionKeyFromParts_(text_(row[5]), text_(row[8]), text_(row[7])),
     synced: true,
   };
 }
@@ -408,6 +426,11 @@ function normalizeIncomingEvent_(event) {
   var timestamp = text_(event.timestamp);
   var parsedTimestamp = new Date(timestamp);
   var sessionName = text_(event.session_name || event.sessionName);
+  var sessionTimes = text_(event.session_times || event.sessionTimes);
+  var projectName = text_(event.project_name || event.projectName) || getProjectName_();
+  var day = text_(event.day) || Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "EEEE");
+  var sessionKey = text_(event.session_key || event.sessionKey) ||
+    buildSessionKeyFromParts_(projectName, day, sessionTimes);
 
   if (eventType !== "sign_in" && eventType !== "sign_out") {
     throw new Error("Event type must be sign_in or sign_out.");
@@ -425,15 +448,16 @@ function normalizeIncomingEvent_(event) {
   return {
     event_id: text_(event.event_id || event.eventId),
     member_id: memberId,
-    project_name: text_(event.project_name || event.projectName) || getProjectName_(),
+    project_name: projectName,
     session_name: sessionName,
     event_type: eventType,
     timestamp: Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "yyyy-MM-dd HH:mm:ss"),
     date: Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "yyyy-MM-dd"),
     device_id: text_(event.device_id || event.deviceId),
     method: text_(event.method) || "barcode",
-    session_times: text_(event.session_times || event.sessionTimes),
-    day: text_(event.day) || Utilities.formatDate(parsedTimestamp, SCRIPT_TIMEZONE, "EEEE"),
+    session_times: sessionTimes,
+    day: day,
+    session_key: sessionKey,
   };
 }
 
@@ -500,6 +524,7 @@ function sessionFromRow_(row) {
     projectName: text_(row[0]) || getProjectName_(),
     sessionName: sessionName,
     sessionTimes: startTime + " - " + endTime,
+    sessionKey: buildSessionKeyFromParts_(text_(row[0]) || getProjectName_(), sessionDay, startTime + " - " + endTime),
     day: sessionDay,
     startTime: startTime,
     endTime: endTime,
@@ -669,6 +694,35 @@ function minutesUntilSession_(currentDayIndex, currentMinutes, sessionDayIndex, 
   var minuteDelta = startMinutes - currentMinutes;
   var total = dayDelta * 24 * 60 + minuteDelta;
   return total > 0 ? total : total + 7 * 24 * 60;
+}
+
+function attendanceGroupKey_(dateText, memberId, sessionKey) {
+  return [dateText, memberId, sessionKey].join("|");
+}
+
+function buildSessionKeyFromParts_(projectName, day, sessionTimes) {
+  return [text_(projectName).toUpperCase(), text_(day).toUpperCase(), text_(sessionTimes)].join("|");
+}
+
+function getSessionDisplayByKey_(sessionKey, fallbackName, fallbackTimes, fallbackDay) {
+  var rows = getConfigRows_();
+
+  for (var i = 0; i < rows.length; i += 1) {
+    var session = sessionFromRow_(rows[i]);
+    if (session && session.sessionKey === sessionKey) {
+      return {
+        sessionName: session.sessionName,
+        sessionTimes: session.sessionTimes,
+        day: session.day,
+      };
+    }
+  }
+
+  return {
+    sessionName: fallbackName,
+    sessionTimes: fallbackTimes,
+    day: fallbackDay,
+  };
 }
 
 function minutesBetween_(startText, endText) {

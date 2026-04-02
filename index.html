@@ -1156,7 +1156,7 @@
       },
 
       buildSessionKey(session, sessionDate) {
-        return [this.projectName, sessionDate, session.sessionName].join("|");
+        return [this.projectName, sessionDate, session.sessionKey || session.sessionName].join("|");
       },
 
       sessionStorageKey(sessionKey) {
@@ -1324,6 +1324,7 @@
             member_type: member.memberType,
             project_name: this.projectName,
             session_name: this.currentSession.sessionName,
+            session_key: this.currentSession.sessionKey,
             session_times: this.currentSession.sessionTimes,
             day: this.currentSession.day,
             event_type: eventType,
@@ -1342,6 +1343,7 @@
           member_type: entry.memberType,
           project_name: this.projectName,
           session_name: this.currentSession.sessionName,
+          session_key: this.currentSession.sessionKey,
           session_times: this.currentSession.sessionTimes,
           day: this.currentSession.day,
           event_type: "sign_out",
