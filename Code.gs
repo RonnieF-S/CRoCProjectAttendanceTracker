@@ -303,7 +303,7 @@ function summarizeAttendanceGroup_(events) {
     if (events[i].event_type === "sign_out" && openTimestamp) {
       summary.sign_out = events[i].raw_timestamp;
       if (events[i].method === FORCED_SIGN_OUT_METHOD) {
-        summary.attendance_hours += 1;
+        summary.attendance_hours = Math.max(summary.attendance_hours, 1);
       } else {
         summary.attendance_hours += minutesBetween_(openTimestamp, events[i].timestamp) / 60;
       }
