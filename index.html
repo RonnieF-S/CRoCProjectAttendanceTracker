@@ -120,6 +120,14 @@
       background: var(--accent-strong);
     }
 
+    .danger-button {
+      background: #b91c1c;
+    }
+
+    .danger-button:hover {
+      background: #991b1b;
+    }
+
     .button-row {
       display: flex;
       gap: 10px;
@@ -384,6 +392,7 @@
         <ul id="recentList" class="history-list">
           <li id="recentEmpty" class="empty-state">No recent activity yet.</li>
         </ul>
+        <button id="endSessionBtn" type="button" class="danger-button">End Session (Sign Out All)</button>
       </div>
     </div>
   </div>
@@ -396,6 +405,7 @@
       syncRetryMs: 4000,
       pollIntervalMs: 15000
     };
+    const FORCED_SIGN_OUT_METHOD = "session_end";
 
     const el = {
       pageTitle: document.getElementById("pageTitle"),
@@ -414,6 +424,7 @@
       startBtn: document.getElementById("startBtn"),
       stopBtn: document.getElementById("stopBtn"),
       manualBtn: document.getElementById("manualBtn"),
+      endSessionBtn: document.getElementById("endSessionBtn"),
       rosterCount: document.getElementById("rosterCount"),
       syncNote: document.getElementById("syncNote"),
       rosterList: document.getElementById("rosterList"),
@@ -443,6 +454,7 @@
       eventQueue: [],
       lastScannedValue: "",
       lastScannedTime: 0,
+      lastMemberAction: {},
       keyboardBuffer: "",
       keyboardTimer: null,
       syncInFlight: false,
@@ -462,6 +474,7 @@
         el.studentInput.disabled = !unlocked;
         el.manualBtn.disabled = !unlocked;
         el.startBtn.disabled = !unlocked;
+        el.endSessionBtn.disabled = !unlocked;
         if (!unlocked) {
           this.stopScanner();
           this.stopPolling();
@@ -489,6 +502,10 @@
       setSyncNote(message, type = "") {
         el.syncNote.className = `sync-note ${type}`.trim();
         el.syncNote.textContent = message;
+      },
+
+      hasSignedInMembers() {
+        return Object.keys(this.roster).length > 0;
       },
 
       request(params, requirePassword = true) {
@@ -553,7 +570,29 @@
       },
 
       formatTimestamp(value) {
-        return new Date(value).toLocaleTimeString();
+        const parsed = this.parseTimestampMs(value);
+        if (parsed === null) {
+          return "Unknown time";
+        }
+        return new Date(parsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      },
+
+      parseTimestampMs(value) {
+        if (!value) {
+          return null;
+        }
+        if (value instanceof Date && !isNaN(value.getTime())) {
+          return value.getTime();
+        }
+
+        const text = String(value).trim();
+        const direct = new Date(text).getTime();
+        if (!Number.isNaN(direct)) {
+          return direct;
+        }
+
+        const normalized = new Date(text.replace(" ", "T")).getTime();
+        return Number.isNaN(normalized) ? null : normalized;
       },
 
       sessionSummary(session) {
@@ -596,6 +635,7 @@
           this.roster = {};
           this.eventQueue = [];
           this.recentActivity = [];
+          this.lastMemberAction = {};
           this.renderRoster();
           this.renderRecentActivity();
           this.setSyncNote("No active session to sync.", "");
@@ -615,6 +655,7 @@
         this.roster = rebuilt.roster;
         this.recentActivity = rebuilt.recentActivity;
         this.eventQueue = rebuilt.eventQueue;
+        this.lastMemberAction = rebuilt.lastMemberAction;
         this.persistSessionState();
         this.renderRoster();
         this.renderRecentActivity();
@@ -665,16 +706,20 @@
           }
         });
 
-        return Object.values(byId).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        return Object.values(byId).sort((a, b) => {
+          return (this.parseTimestampMs(a.timestamp) || 0) - (this.parseTimestampMs(b.timestamp) || 0);
+        });
       },
 
       rebuildStateFromEvents(events) {
         const roster = {};
         const recent = [];
         const unsynced = [];
+        const lastMemberAction = {};
 
         events.forEach((event) => {
           const memberType = event.member_type || this.memberTypeFor(event.member_id);
+          const timestampMs = this.parseTimestampMs(event.timestamp);
           if (event.event_type === "sign_in") {
             roster[event.member_id] = {
               memberId: event.member_id,
@@ -684,6 +729,13 @@
             };
           } else if (event.event_type === "sign_out") {
             delete roster[event.member_id];
+          }
+
+          if (timestampMs !== null) {
+            lastMemberAction[event.member_id] = {
+              eventType: event.event_type,
+              timestampMs: timestampMs
+            };
           }
 
           recent.unshift({
@@ -703,13 +755,16 @@
         return {
           roster: roster,
           recentActivity: recent.slice(0, this.settings.recentLimit),
-          eventQueue: unsynced
+          eventQueue: unsynced,
+          lastMemberAction: lastMemberAction
         };
       },
 
       renderRoster() {
         el.rosterList.innerHTML = "";
-        const rosterEntries = Object.values(this.roster).sort((a, b) => new Date(a.signedInAt).getTime() - new Date(b.signedInAt).getTime());
+        const rosterEntries = Object.values(this.roster).sort((a, b) => {
+          return (this.parseTimestampMs(a.signedInAt) || 0) - (this.parseTimestampMs(b.signedInAt) || 0);
+        });
         el.rosterCount.textContent = `${rosterEntries.length} ${rosterEntries.length === 1 ? "member" : "members"}`;
 
         if (!rosterEntries.length) {
@@ -767,6 +822,7 @@
       },
 
       renderSyncStatus() {
+        el.endSessionBtn.disabled = !this.unlocked || !this.hasSignedInMembers();
         if (!this.currentSession) {
           this.setSyncNote("No active session to sync.", "");
           return;
@@ -865,6 +921,15 @@
 
         const now = new Date();
         const activeMember = this.roster[member.identifier];
+        const eventType = activeMember ? "sign_out" : "sign_in";
+        const lastAction = this.lastMemberAction[member.identifier];
+
+        if (activeMember && lastAction && now.getTime() - lastAction.timestampMs < this.settings.duplicateCooldownMs) {
+          return {
+            blocked: true,
+            message: `${member.memberType} ${member.identifier} is still signed in. Wait a few seconds before signing out.`
+          };
+        }
 
         return {
           blocked: false,
@@ -876,12 +941,29 @@
             session_name: this.currentSession.sessionName,
             session_times: this.currentSession.sessionTimes,
             day: this.currentSession.day,
-            event_type: activeMember ? "sign_out" : "sign_in",
+            event_type: eventType,
             method: method,
             timestamp: now.toISOString(),
             device_id: this.deviceId,
             synced: false
           }
+        };
+      },
+
+      buildForcedSignOutEvent(entry, timestamp) {
+        return {
+          event_id: `${this.deviceId}_${timestamp.getTime()}_${entry.memberId}_${FORCED_SIGN_OUT_METHOD}`,
+          member_id: entry.memberId,
+          member_type: entry.memberType,
+          project_name: this.projectName,
+          session_name: this.currentSession.sessionName,
+          session_times: this.currentSession.sessionTimes,
+          day: this.currentSession.day,
+          event_type: "sign_out",
+          method: FORCED_SIGN_OUT_METHOD,
+          timestamp: timestamp.toISOString(),
+          device_id: this.deviceId,
+          synced: false
         };
       },
 
@@ -906,11 +988,40 @@
           timestamp: event.timestamp
         });
         this.recentActivity = this.recentActivity.slice(0, this.settings.recentLimit);
+        this.lastMemberAction[event.member_id] = {
+          eventType: event.event_type,
+          timestampMs: this.parseTimestampMs(event.timestamp) || Date.now()
+        };
         this.eventQueue.push(event);
         this.persistSessionState();
         this.renderRoster();
         this.renderRecentActivity();
         this.renderSyncStatus();
+      },
+
+      async endSessionSignOutAll() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+
+        if (!this.currentSession || !this.hasSignedInMembers()) {
+          this.setStatus("No members signed in", "There is nobody to sign out.", "error");
+          return;
+        }
+
+        const rosterEntries = Object.values(this.roster);
+        rosterEntries.forEach((entry, index) => {
+          const now = new Date(Date.now() + index);
+          this.applyLocalEvent(this.buildForcedSignOutEvent(entry, now));
+        });
+
+        this.setStatus(
+          "Session ended",
+          `${rosterEntries.length} ${rosterEntries.length === 1 ? "member was" : "members were"} signed out with the 1-hour fallback.`,
+          "success"
+        );
+        this.scheduleSync(50);
       },
 
       scheduleSync(delayMs = 0) {
@@ -1038,7 +1149,7 @@
           const decision = this.buildEvent(normalized, method);
 
           if (decision.blocked) {
-            this.setStatus("Already signed in", decision.message, "error");
+            this.setStatus("Cooldown active", decision.message, "error");
             return;
           }
 
@@ -1197,6 +1308,7 @@
         el.startBtn.addEventListener("click", () => this.startScanner());
         el.stopBtn.addEventListener("click", () => this.stopScanner());
         el.manualBtn.addEventListener("click", () => this.submitManual());
+        el.endSessionBtn.addEventListener("click", () => this.endSessionSignOutAll());
         el.unlockBtn.addEventListener("click", () => this.unlock());
         el.studentInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {

@@ -51,6 +51,7 @@ var SETTINGS = {
   syncBatchSize: 10,
 };
 var SCRIPT_TIMEZONE = Session.getScriptTimeZone();
+var FORCED_SIGN_OUT_METHOD = "session_end";
 
 function doGet(e) {
   ensureSpreadsheet_();
@@ -271,7 +272,7 @@ function rebuildAttendance_() {
 
 function summarizeAttendanceGroup_(events) {
   events.sort(function (a, b) {
-    return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    return sortTimestampMs_(a.timestamp) - sortTimestampMs_(b.timestamp);
   });
 
   var first = events[0];
@@ -301,7 +302,11 @@ function summarizeAttendanceGroup_(events) {
 
     if (events[i].event_type === "sign_out" && openTimestamp) {
       summary.sign_out = events[i].raw_timestamp;
-      summary.attendance_hours += Math.max(0, minutesBetween_(openTimestamp, events[i].timestamp)) / 60;
+      if (events[i].method === FORCED_SIGN_OUT_METHOD) {
+        summary.attendance_hours += 1;
+      } else {
+        summary.attendance_hours += minutesBetween_(openTimestamp, events[i].timestamp) / 60;
+      }
       openTimestamp = "";
     }
   }
@@ -367,9 +372,10 @@ function getEventsForSession_(session, dateText) {
 }
 
 function rowToEvent_(row) {
+  var rawTimestamp = toTimestampText_(row[0]);
   return {
-    raw_timestamp: text_(row[0]),
-    timestamp: clientTimestamp_(row[0]),
+    raw_timestamp: rawTimestamp,
+    timestamp: clientTimestamp_(rawTimestamp),
     date: toDateText_(row[1]),
     member_id: text_(row[2]).toUpperCase(),
     event_type: text_(row[3]),
@@ -666,7 +672,12 @@ function minutesUntilSession_(currentDayIndex, currentMinutes, sessionDayIndex, 
 }
 
 function minutesBetween_(startText, endText) {
-  return Math.round((parseTimestampMs_(endText) - parseTimestampMs_(startText)) / 60000);
+  var startMs = parseTimestampMs_(startText);
+  var endMs = parseTimestampMs_(endText);
+  if (isNaN(startMs) || isNaN(endMs)) {
+    return 0;
+  }
+  return Math.max(0, Math.round((endMs - startMs) / 60000));
 }
 
 function sessionHasEnded_(dateText, sessionTimes) {
@@ -725,7 +736,21 @@ function clientTimestamp_(value) {
 }
 
 function parseTimestampMs_(value) {
+  var direct = new Date(value).getTime();
+  if (!isNaN(direct)) {
+    return direct;
+  }
   return new Date(clientTimestamp_(value)).getTime();
+}
+
+function sortTimestampMs_(value) {
+  return parseTimestampMs_(value) || 0;
+}
+
+function toTimestampText_(value) {
+  return Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())
+    ? Utilities.formatDate(value, SCRIPT_TIMEZONE, "yyyy-MM-dd HH:mm:ss")
+    : text_(value);
 }
 
 function param_(e, key) {

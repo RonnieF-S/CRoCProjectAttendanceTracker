@@ -122,7 +122,7 @@ var SETTINGS = {
 
 What they control:
 
-- `duplicateCooldownSeconds`: ignores immediate repeat scans of the same card
+- `duplicateCooldownSeconds`: short cooldown that prevents an immediate second scan from accidentally signing someone out
 - `recentLimit`: how many recent events the frontend shows
 - `syncBatchSize`: how many queued events are sent to the backend at once
 
@@ -219,6 +219,7 @@ Notes:
 - `Attendance Hours` is calculated as a decimal rounded to 2 decimal places
 - multiple sign-in / sign-out pairs in one session are summed
 - if someone signs in and never signs out, and the session has ended, attendance defaults to `1.00` hour
+- if the operator uses `End Session (Sign Out All)`, every remaining signed-in member is signed out with the same `1.00` hour fallback
 - `Notes` is available for manual comments
 
 Do not type attendance rows manually. The backend rebuilds this tab.
@@ -246,6 +247,22 @@ The frontend:
 - shows the current session
 - shows a live `Currently Signed In` roster
 - shows recent sign-in / sign-out activity
+- includes an `End Session (Sign Out All)` button under `Recent Activity`
+
+## Scan Behavior
+
+Normal scan flow:
+
+- first scan for a member signs them in
+- a quick repeat scan during the cooldown window does not sign them out
+- a later scan after the cooldown window signs them out
+- members can sign in and out multiple times in the same session, and attendance is summed
+
+End-of-session flow:
+
+- if members are still signed in, use `End Session (Sign Out All)`
+- this creates forced sign-out events for everyone still on the roster
+- those forced sign-outs use the same `1.00` hour fallback as members who never signed out before session end
 
 ## First-Time Test
 
@@ -263,10 +280,13 @@ Then test:
 3. Confirm the title becomes `Drone Team Attendance`.
 4. Scan or enter one member ID.
 5. Confirm they appear in `Currently Signed In`.
-6. Scan the same member again after the duplicate cooldown window and confirm they sign out.
-7. Refresh the page and confirm the roster restores.
-8. Confirm the event appears in `Events`.
-9. Confirm the attendance summary appears in `Attendance`.
+6. Scan the same member again immediately and confirm they stay signed in.
+7. Scan the same member again after the duplicate cooldown window and confirm they sign out.
+8. Sign in one member and use `End Session (Sign Out All)`.
+9. Confirm they are removed from `Currently Signed In`.
+10. Refresh the page and confirm the roster restores correctly.
+11. Confirm the events appear in `Events`.
+12. Confirm the attendance summary appears in `Attendance`.
 
 ## Troubleshooting
 
@@ -297,6 +317,10 @@ Check:
 - the Apps Script deployment is current
 - the frontend is using the correct `apiUrl`
 - the session is currently open
+
+### Attendance is lower than expected for someone who forgot to sign out
+
+That is expected if they were left signed in until session end or signed out via `End Session (Sign Out All)`. In those cases the backend applies the `1.00` hour fallback.
 
 ### The roster looks stale
 
