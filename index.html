@@ -19,6 +19,9 @@
       --error-bg: #fee2e2;
       --error-border: #ef4444;
       --error-text: #991b1b;
+      --info-bg: #eef6ff;
+      --info-border: #60a5fa;
+      --info-text: #1d4ed8;
       --shadow: 0 16px 32px rgba(23, 33, 43, 0.08);
     }
 
@@ -28,7 +31,7 @@
 
     body {
       font-family: Arial, sans-serif;
-      max-width: 1280px;
+      max-width: 1320px;
       margin: 0 auto;
       padding: 18px 24px 20px;
       background:
@@ -54,18 +57,24 @@
       box-shadow: var(--shadow);
     }
 
-    .scanner-layout {
+    .top-layout,
+    .scanner-layout,
+    .activity-layout {
       display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
       gap: 20px;
       align-items: start;
     }
 
     .top-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.9fr);
-      gap: 20px;
-      align-items: start;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+    }
+
+    .scanner-layout {
+      grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+    }
+
+    .activity-layout {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
     }
 
     #reader {
@@ -122,11 +131,13 @@
     .scan-panel h2,
     .session-panel h2,
     .status-panel h2,
+    .roster-panel h2,
     .history-panel h2 {
       margin-top: 0;
       margin-bottom: 8px;
     }
 
+    .status-banner,
     .session-banner {
       border-radius: 16px;
       border: 2px solid var(--border);
@@ -136,30 +147,13 @@
       background: #f8fafc;
     }
 
-    .session-banner.open {
-      background: var(--success-bg);
-      border-color: var(--success-border);
-      color: var(--success-text);
-    }
-
-    .session-banner.closed {
-      background: #eef6ff;
-      border-color: #60a5fa;
-      color: #1d4ed8;
-    }
-
     .status-banner {
-      border-radius: 16px;
-      border: 2px solid var(--border);
-      padding: 16px 18px;
       min-height: 96px;
-      display: grid;
-      gap: 6px;
       align-content: center;
-      background: #f8fafc;
     }
 
-    .status-banner.success {
+    .status-banner.success,
+    .session-banner.open {
       background: var(--success-bg);
       border-color: var(--success-border);
       color: var(--success-text);
@@ -169,6 +163,12 @@
       background: var(--error-bg);
       border-color: var(--error-border);
       color: var(--error-text);
+    }
+
+    .session-banner.closed {
+      background: var(--info-bg);
+      border-color: var(--info-border);
+      color: var(--info-text);
     }
 
     .status-label {
@@ -191,7 +191,8 @@
       opacity: 0.9;
     }
 
-    .history-list {
+    .history-list,
+    .roster-list {
       list-style: none;
       margin: 0;
       padding: 0;
@@ -199,7 +200,8 @@
       gap: 10px;
     }
 
-    .history-item {
+    .history-item,
+    .roster-item {
       display: flex;
       justify-content: space-between;
       gap: 12px;
@@ -209,24 +211,39 @@
       border: 1px solid var(--border);
     }
 
-    .history-name {
+    .history-name,
+    .roster-name {
       font-weight: 700;
       color: var(--text);
     }
 
-    .history-meta {
+    .history-meta,
+    .roster-meta,
+    .muted,
+    .sync-note {
       font-size: 14px;
       color: var(--muted);
     }
 
-    .muted {
-      color: var(--muted);
-      font-size: 14px;
+    .sync-note.error {
+      color: var(--error-text);
+    }
+
+    .sync-note.success {
+      color: var(--success-text);
     }
 
     .empty-state {
       color: var(--muted);
       margin: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      margin-bottom: 8px;
     }
 
     .auth-row {
@@ -267,13 +284,14 @@
       display: none;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 980px) {
       body {
         padding: 16px;
       }
 
       .top-layout,
-      .scanner-layout {
+      .scanner-layout,
+      .activity-layout {
         grid-template-columns: 1fr;
       }
 
@@ -285,7 +303,7 @@
 </head>
 <body>
   <h1 id="pageTitle">Project Attendance</h1>
-  <p>Scan a student card barcode or enter a member ID manually. Supported formats are student IDs and staff IDs.</p>
+  <p>Scan a student card barcode or enter a member ID manually. Scanning signs members in or out for the current session.</p>
 
   <div id="accessCard" class="card">
     <h2>Access</h2>
@@ -293,7 +311,7 @@
       <input id="passwordInput" type="password" placeholder="Enter access password">
       <button id="unlockBtn" type="button">Unlock</button>
     </div>
-    <div id="authMessage" class="auth-message">Enter the attendance password before scanning or signing in manually.</div>
+    <div id="authMessage" class="auth-message">Enter the attendance password before scanning or signing members in or out.</div>
   </div>
 
   <div class="top-layout">
@@ -333,23 +351,36 @@
         <p class="muted">Use this if the barcode cannot be read.</p>
       </div>
       <input id="studentNumber" type="text" placeholder="Enter student ID">
-      <button id="manualBtn">Sign In Manually</button>
+      <button id="manualBtn">Process Scan</button>
     </div>
   </div>
 
-  <div class="card history-panel">
-    <h2>Recently Signed In</h2>
-    <ul id="recentList" class="history-list">
-      <li id="recentEmpty" class="empty-state">No recent sign-ins yet.</li>
-    </ul>
+  <div class="activity-layout">
+    <div class="card roster-panel">
+      <div class="panel-header">
+        <h2>Currently Signed In</h2>
+        <div id="rosterCount" class="muted">0 members</div>
+      </div>
+      <div id="syncNote" class="sync-note">Session state will appear here after unlock.</div>
+      <ul id="rosterList" class="roster-list">
+        <li id="rosterEmpty" class="empty-state">No members are currently signed in.</li>
+      </ul>
+    </div>
+
+    <div class="card history-panel">
+      <h2>Recent Activity</h2>
+      <ul id="recentList" class="history-list">
+        <li id="recentEmpty" class="empty-state">No recent activity yet.</li>
+      </ul>
+    </div>
   </div>
 
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script>
     const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
-      duplicateCooldownMs: 3000,
-      recentLimit: 12
+      storagePrefix: "croc-attendance-v3",
+      syncRetryMs: 4000
     };
 
     const el = {
@@ -369,27 +400,48 @@
       startBtn: document.getElementById("startBtn"),
       stopBtn: document.getElementById("stopBtn"),
       manualBtn: document.getElementById("manualBtn"),
+      rosterCount: document.getElementById("rosterCount"),
+      syncNote: document.getElementById("syncNote"),
+      rosterList: document.getElementById("rosterList"),
+      rosterEmpty: document.getElementById("rosterEmpty"),
       recentList: document.getElementById("recentList"),
-      recentEmpty: document.getElementById("recentEmpty"),
+      recentEmpty: document.getElementById("recentEmpty")
     };
 
     const app = {
-      recentSignIns: [],
-      scanning: false,
+      settings: {
+        minimumAttendanceMinutes: 15,
+        duplicateCooldownMs: 3000,
+        recentLimit: 12,
+        syncBatchSize: 10
+      },
       html5QrCode: null,
-      lastScannedValue: "",
-      lastScannedTime: 0,
-      currentSessionName: "",
-      currentSessionOpen: false,
-      keyboardBuffer: "",
-      keyboardTimer: null,
+      scanning: false,
       unlocked: false,
       password: "",
+      projectName: "Project",
+      sessionDate: "",
+      currentSession: null,
+      currentSessionOpen: false,
+      nextSession: null,
+      sessionKey: "",
+      roster: {},
+      recentActivity: [],
+      eventQueue: [],
+      lastScannedValue: "",
+      lastScannedTime: 0,
+      keyboardBuffer: "",
+      keyboardTimer: null,
+      syncInFlight: false,
+      syncTimer: null,
+      deviceId: "",
+
       setProjectName(projectName) {
-        const name = projectName || "Project";
-        document.title = `${name} Attendance`;
-        el.pageTitle.textContent = `${name} Attendance`;
+        this.projectName = projectName || "Project";
+        document.title = `${this.projectName} Attendance`;
+        el.pageTitle.textContent = `${this.projectName} Attendance`;
       },
+
       setUnlocked(unlocked) {
         this.unlocked = unlocked;
         el.studentInput.disabled = !unlocked;
@@ -400,116 +452,62 @@
           el.accessCard.classList.remove("hidden");
         }
       },
+
       setAuthMessage(message, type = "") {
         el.authMessage.className = `auth-message ${type}`.trim();
         el.authMessage.textContent = message;
       },
+
       setStatus(message, detail = "", type = "") {
         el.statusBanner.className = `status-banner ${type}`.trim();
         el.statusMessage.textContent = message;
         el.statusDetail.textContent = detail;
       },
+
       setSessionInfo(message, detail = "", type = "") {
         el.sessionBanner.className = `session-banner ${type}`.trim();
         el.sessionMessage.textContent = message;
         el.sessionDetail.textContent = detail;
       },
-      applySessionStatus(result) {
-        this.setProjectName(result.projectName);
-        this.currentSessionOpen = !!(result.sessionStatus && result.sessionStatus.isOpen);
 
-        if (result.sessionStatus && result.sessionStatus.currentSession) {
-          this.currentSessionName = result.sessionStatus.currentSession.sessionName || "";
-          const summary = this.sessionSummary(result.sessionStatus.currentSession);
-          this.setSessionInfo("Open now", summary, "open");
-          this.setStatus("Ready", summary);
-          return;
-        }
+      setSyncNote(message, type = "") {
+        el.syncNote.className = `sync-note ${type}`.trim();
+        el.syncNote.textContent = message;
+      },
 
-        this.currentSessionName = "";
-        if (result.sessionStatus && result.sessionStatus.nextSession) {
-          const nextSummary = this.sessionSummary(result.sessionStatus.nextSession);
-          this.setSessionInfo("No session open", `Next session: ${nextSummary}`, "closed");
-          this.setStatus("No session open", `Next session: ${nextSummary}`);
-          return;
-        }
-
-        this.setSessionInfo("No session configured", "Add an active session in the Config tab.", "closed");
-        this.setStatus("Backend configuration error", "No active or upcoming sessions are configured.", "error");
-      },
-      sessionDetail(result) {
-        return [result.session || this.currentSessionName, result.sessionTimes, result.day].filter(Boolean).join(" • ");
-      },
-      sessionSummary(session) {
-        return session
-          ? [session.sessionName, session.sessionTimes, session.day].filter(Boolean).join(" • ")
-          : "";
-      },
-      addRecent(identifier, memberType, method, sessionName) {
-        this.recentSignIns.unshift({
-          identifier,
-          memberType,
-          method,
-          sessionName,
-          signedInAt: new Date()
-        });
-        if (this.recentSignIns.length > CONFIG.recentLimit) {
-          this.recentSignIns.length = CONFIG.recentLimit;
-        }
-      },
-      renderRecentSignIns() {
-        el.recentList.innerHTML = "";
-        if (!this.recentSignIns.length) {
-          el.recentList.appendChild(el.recentEmpty);
-          return;
-        }
-        this.recentSignIns.forEach((entry) => {
-          const item = document.createElement("li");
-          item.className = "history-item";
-          const left = document.createElement("div");
-          const name = document.createElement("div");
-          name.className = "history-name";
-          name.textContent = entry.identifier;
-          const meta = document.createElement("div");
-          meta.className = "history-meta";
-          meta.textContent = `${entry.memberType} • ${entry.method} • ${entry.sessionName}`;
-          const right = document.createElement("div");
-          right.className = "history-meta";
-          right.textContent = entry.signedInAt.toLocaleTimeString();
-          left.appendChild(name);
-          left.appendChild(meta);
-          item.appendChild(left);
-          item.appendChild(right);
-          el.recentList.appendChild(item);
-        });
-      },
       request(params, requirePassword = true) {
         return new Promise((resolve, reject) => {
           if (requirePassword && !this.password) {
             reject(new Error("Enter the attendance password before signing people in."));
             return;
           }
+
           const callbackName = `jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
           const script = document.createElement("script");
           const query = new URLSearchParams({ ...params, password: this.password, callback: callbackName }).toString();
+
           window[callbackName] = function(response) {
             cleanup();
             resolve(response);
           };
+
           script.onerror = function() {
             cleanup();
             reject(new Error("Request failed."));
           };
+
           function cleanup() {
             delete window[callbackName];
             if (script.parentNode) {
               script.parentNode.removeChild(script);
             }
           }
+
           script.src = `${CONFIG.apiUrl}?${query}`;
           document.body.appendChild(script);
         });
       },
+
       normalize(rawValue) {
         const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
         if (/^\d{8}$/.test(cleaned)) {
@@ -518,18 +516,412 @@
         if (/^\d{6}[A-Z]$/.test(cleaned)) {
           return { identifier: cleaned, memberType: "Staff" };
         }
-        if (cleaned.length > 3) {
-          const suffix = cleaned.slice(3);
-          if (/^\d{8}$/.test(suffix)) {
-            return { identifier: suffix, memberType: "Student" };
-          }
-          if (/^\d{6}[A-Z]$/.test(suffix)) {
-            return { identifier: suffix, memberType: "Staff" };
-          }
+
+        const suffix = cleaned.slice(3);
+        if (/^\d{8}$/.test(suffix)) {
+          return { identifier: suffix, memberType: "Student" };
+        }
+        if (/^\d{6}[A-Z]$/.test(suffix)) {
+          return { identifier: suffix, memberType: "Staff" };
         }
 
         throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
       },
+
+      memberTypeFor(identifier) {
+        return /^\d{6}[A-Z]$/.test(identifier) ? "Staff" : "Student";
+      },
+
+      formatTimestamp(value) {
+        return new Date(value).toLocaleTimeString();
+      },
+
+      sessionSummary(session) {
+        return session
+          ? [session.sessionName, session.sessionTimes, session.day].filter(Boolean).join(" • ")
+          : "";
+      },
+
+      setSessionStatus(sessionStatus) {
+        this.currentSessionOpen = !!(sessionStatus && sessionStatus.isOpen);
+        this.currentSession = sessionStatus && sessionStatus.currentSession ? sessionStatus.currentSession : null;
+        this.nextSession = sessionStatus && sessionStatus.nextSession ? sessionStatus.nextSession : null;
+        this.sessionKey = this.currentSession ? this.buildSessionKey(this.currentSession, this.sessionDate) : "";
+
+        if (this.currentSession) {
+          this.setSessionInfo("Open now", this.sessionSummary(this.currentSession), "open");
+          return;
+        }
+
+        if (this.nextSession) {
+          this.setSessionInfo("No session open", `Next session: ${this.sessionSummary(this.nextSession)}`, "closed");
+          return;
+        }
+
+        this.setSessionInfo("No session configured", "Add an active session in the Config tab.", "closed");
+      },
+
+      applyBootstrap(result) {
+        this.settings = {
+          minimumAttendanceMinutes: result.settings && result.settings.minimumAttendanceMinutes || 15,
+          duplicateCooldownMs: result.settings && result.settings.duplicateCooldownMs || 3000,
+          recentLimit: result.settings && result.settings.recentLimit || 12,
+          syncBatchSize: result.settings && result.settings.syncBatchSize || 10
+        };
+        this.sessionDate = result.sessionDate || this.todayDateText();
+        this.setProjectName(result.projectName);
+        this.setSessionStatus(result.sessionStatus);
+        this.persistLastKnownSessionInfo();
+
+        if (!this.currentSession) {
+          this.roster = {};
+          this.eventQueue = [];
+          this.recentActivity = [];
+          this.renderRoster();
+          this.renderRecentActivity();
+          this.setSyncNote("No active session to sync.", "");
+          this.setStatus(
+            this.nextSession ? "No session open" : "Backend configuration error",
+            this.nextSession ? `Next session: ${this.sessionSummary(this.nextSession)}` : "No active or upcoming sessions are configured.",
+            this.nextSession ? "" : "error"
+          );
+          return;
+        }
+
+        const persisted = this.loadSessionState(this.sessionKey);
+        const backendEvents = Array.isArray(result.events) ? result.events.map((event) => ({ ...event, synced: true })) : [];
+        const unsyncedEvents = persisted && Array.isArray(persisted.eventQueue) ? persisted.eventQueue : [];
+        const rebuilt = this.rebuildStateFromEvents(this.mergeEvents(backendEvents, unsyncedEvents));
+
+        this.roster = rebuilt.roster;
+        this.recentActivity = rebuilt.recentActivity;
+        this.eventQueue = rebuilt.eventQueue;
+        this.persistSessionState();
+        this.renderRoster();
+        this.renderRecentActivity();
+        this.renderSyncStatus();
+        this.setStatus("Ready", this.sessionSummary(this.currentSession));
+      },
+
+      mergeEvents(backendEvents, unsyncedEvents) {
+        const byId = {};
+
+        backendEvents.forEach((event) => {
+          byId[event.event_id] = { ...event, synced: true };
+        });
+
+        unsyncedEvents.forEach((event) => {
+          if (!byId[event.event_id]) {
+            byId[event.event_id] = { ...event, synced: false };
+          }
+        });
+
+        return Object.values(byId).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      },
+
+      rebuildStateFromEvents(events) {
+        const roster = {};
+        const recent = [];
+        const unsynced = [];
+
+        events.forEach((event) => {
+          const memberType = event.member_type || this.memberTypeFor(event.member_id);
+          if (event.event_type === "sign_in") {
+            roster[event.member_id] = {
+              memberId: event.member_id,
+              memberType: memberType,
+              signedInAt: event.timestamp,
+              method: event.method
+            };
+          } else if (event.event_type === "sign_out") {
+            delete roster[event.member_id];
+          }
+
+          recent.unshift({
+            identifier: event.member_id,
+            memberType: memberType,
+            eventType: event.event_type,
+            method: event.method,
+            sessionName: event.session_name,
+            timestamp: event.timestamp
+          });
+
+          if (!event.synced) {
+            unsynced.push(event);
+          }
+        });
+
+        return {
+          roster: roster,
+          recentActivity: recent.slice(0, this.settings.recentLimit),
+          eventQueue: unsynced
+        };
+      },
+
+      renderRoster() {
+        el.rosterList.innerHTML = "";
+        const rosterEntries = Object.values(this.roster).sort((a, b) => new Date(a.signedInAt).getTime() - new Date(b.signedInAt).getTime());
+        el.rosterCount.textContent = `${rosterEntries.length} ${rosterEntries.length === 1 ? "member" : "members"}`;
+
+        if (!rosterEntries.length) {
+          el.rosterList.appendChild(el.rosterEmpty);
+          return;
+        }
+
+        rosterEntries.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "roster-item";
+          const left = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "roster-name";
+          name.textContent = entry.memberId;
+          const meta = document.createElement("div");
+          meta.className = "roster-meta";
+          meta.textContent = `${entry.memberType} • Signed in at ${this.formatTimestamp(entry.signedInAt)}`;
+          const right = document.createElement("div");
+          right.className = "roster-meta";
+          right.textContent = this.currentSession ? this.currentSession.sessionName : "";
+          left.appendChild(name);
+          left.appendChild(meta);
+          item.appendChild(left);
+          item.appendChild(right);
+          el.rosterList.appendChild(item);
+        });
+      },
+
+      renderRecentActivity() {
+        el.recentList.innerHTML = "";
+        if (!this.recentActivity.length) {
+          el.recentList.appendChild(el.recentEmpty);
+          return;
+        }
+
+        this.recentActivity.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "history-item";
+          const left = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "history-name";
+          name.textContent = entry.identifier;
+          const meta = document.createElement("div");
+          meta.className = "history-meta";
+          meta.textContent = `${entry.memberType} • ${entry.eventType === "sign_in" ? "Signed in" : "Signed out"} • ${entry.sessionName}`;
+          const right = document.createElement("div");
+          right.className = "history-meta";
+          right.textContent = this.formatTimestamp(entry.timestamp);
+          left.appendChild(name);
+          left.appendChild(meta);
+          item.appendChild(left);
+          item.appendChild(right);
+          el.recentList.appendChild(item);
+        });
+      },
+
+      renderSyncStatus() {
+        if (!this.currentSession) {
+          this.setSyncNote("No active session to sync.", "");
+          return;
+        }
+        if (this.eventQueue.length) {
+          this.setSyncNote(`${this.eventQueue.length} event${this.eventQueue.length === 1 ? "" : "s"} waiting to sync.`, "error");
+          return;
+        }
+        this.setSyncNote("All local session changes are synced.", "success");
+      },
+
+      buildSessionKey(session, sessionDate) {
+        return [this.projectName, sessionDate, session.sessionName].join("|");
+      },
+
+      sessionStorageKey(sessionKey) {
+        return `${CONFIG.storagePrefix}:session:${sessionKey}`;
+      },
+
+      lastInfoStorageKey() {
+        return `${CONFIG.storagePrefix}:last-known-session`;
+      },
+
+      loadSessionState(sessionKey) {
+        if (!sessionKey) {
+          return null;
+        }
+
+        try {
+          const raw = localStorage.getItem(this.sessionStorageKey(sessionKey));
+          return raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          return null;
+        }
+      },
+
+      persistSessionState() {
+        if (!this.sessionKey) {
+          return;
+        }
+
+        localStorage.setItem(this.sessionStorageKey(this.sessionKey), JSON.stringify({
+          sessionKey: this.sessionKey,
+          projectName: this.projectName,
+          sessionDate: this.sessionDate,
+          currentSession: this.currentSession,
+          roster: this.roster,
+          eventQueue: this.eventQueue,
+          recentActivity: this.recentActivity,
+          lastKnownSessionInfo: {
+            currentSessionOpen: this.currentSessionOpen,
+            nextSession: this.nextSession,
+            savedAt: new Date().toISOString()
+          }
+        }));
+      },
+
+      persistLastKnownSessionInfo() {
+        localStorage.setItem(this.lastInfoStorageKey(), JSON.stringify({
+          projectName: this.projectName,
+          sessionDate: this.sessionDate,
+          sessionStatus: {
+            isOpen: this.currentSessionOpen,
+            currentSession: this.currentSession,
+            nextSession: this.nextSession
+          }
+        }));
+      },
+
+      loadDeviceId() {
+        const key = `${CONFIG.storagePrefix}:device-id`;
+        let deviceId = localStorage.getItem(key);
+        if (!deviceId) {
+          deviceId = window.crypto && window.crypto.randomUUID
+            ? window.crypto.randomUUID()
+            : `device_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+          localStorage.setItem(key, deviceId);
+        }
+        return deviceId;
+      },
+
+      todayDateText() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      },
+
+      minimumAttendanceMs() {
+        return this.settings.minimumAttendanceMinutes * 60 * 1000;
+      },
+
+      formatRemainingMinutes(ms) {
+        return Math.max(1, Math.ceil(ms / 60000));
+      },
+
+      buildEvent(member, method) {
+        if (!this.currentSessionOpen || !this.currentSession) {
+          throw new Error(this.nextSession
+            ? `No session is open. Next session: ${this.sessionSummary(this.nextSession)}`
+            : "No session is currently open.");
+        }
+
+        const now = new Date();
+        const activeMember = this.roster[member.identifier];
+        if (activeMember) {
+          const elapsed = now.getTime() - new Date(activeMember.signedInAt).getTime();
+          if (elapsed < this.minimumAttendanceMs()) {
+            return {
+              blocked: true,
+              message: `${activeMember.memberType} ${member.identifier} is already signed in. Try again in ${this.formatRemainingMinutes(this.minimumAttendanceMs() - elapsed)} minute${this.formatRemainingMinutes(this.minimumAttendanceMs() - elapsed) === 1 ? "" : "s"}.`
+            };
+          }
+        }
+
+        return {
+          blocked: false,
+          event: {
+            event_id: `${this.deviceId}_${now.getTime()}_${member.identifier}`,
+            member_id: member.identifier,
+            member_type: member.memberType,
+            project_name: this.projectName,
+            session_name: this.currentSession.sessionName,
+            session_times: this.currentSession.sessionTimes,
+            day: this.currentSession.day,
+            event_type: activeMember ? "sign_out" : "sign_in",
+            method: method,
+            timestamp: now.toISOString(),
+            device_id: this.deviceId,
+            synced: false
+          }
+        };
+      },
+
+      applyLocalEvent(event) {
+        if (event.event_type === "sign_in") {
+          this.roster[event.member_id] = {
+            memberId: event.member_id,
+            memberType: event.member_type,
+            signedInAt: event.timestamp,
+            method: event.method
+          };
+        } else {
+          delete this.roster[event.member_id];
+        }
+
+        this.recentActivity.unshift({
+          identifier: event.member_id,
+          memberType: event.member_type,
+          eventType: event.event_type,
+          method: event.method,
+          sessionName: event.session_name,
+          timestamp: event.timestamp
+        });
+        this.recentActivity = this.recentActivity.slice(0, this.settings.recentLimit);
+        this.eventQueue.push(event);
+        this.persistSessionState();
+        this.renderRoster();
+        this.renderRecentActivity();
+        this.renderSyncStatus();
+      },
+
+      scheduleSync(delayMs = 0) {
+        if (this.syncTimer) {
+          clearTimeout(this.syncTimer);
+        }
+        this.syncTimer = window.setTimeout(() => this.flushSyncQueue(), delayMs);
+      },
+
+      async flushSyncQueue() {
+        if (this.syncInFlight || !this.unlocked || !this.eventQueue.length) {
+          return;
+        }
+
+        this.syncInFlight = true;
+        const batch = this.eventQueue.slice(0, this.settings.syncBatchSize);
+
+        try {
+          const result = await this.request({
+            action: "syncEvents",
+            events: JSON.stringify(batch)
+          });
+
+          if (!result.success) {
+            throw new Error(result.message || "Event sync failed.");
+          }
+
+          const syncedIds = new Set(result.syncedEventIds || []);
+          this.eventQueue = this.eventQueue.filter((event) => !syncedIds.has(event.event_id));
+          this.persistSessionState();
+          this.renderSyncStatus();
+
+          if (this.eventQueue.length) {
+            this.scheduleSync(100);
+          }
+        } catch (_error) {
+          this.renderSyncStatus();
+          this.scheduleSync(CONFIG.syncRetryMs);
+        } finally {
+          this.syncInFlight = false;
+        }
+      },
+
       async startScanner() {
         if (!this.unlocked) {
           this.setStatus("Password required", "Enter the attendance password first.", "error");
@@ -543,12 +935,13 @@
           this.setStatus("Scanner unavailable", "Barcode scanning library did not load. Use manual entry.", "error");
           return;
         }
+
         try {
           if (!this.html5QrCode) {
             this.html5QrCode = new Html5Qrcode("reader");
           }
+
           const cameraOptions = await this.buildCameraOptions();
-          let started = false;
           let lastError = null;
 
           for (let i = 0; i < cameraOptions.length; i += 1) {
@@ -559,24 +952,18 @@
                 (decodedText) => this.handleScan(decodedText),
                 () => {}
               );
-              started = true;
-              break;
+              this.scanning = true;
+              this.setStatus(
+                "Scanner ready",
+                this.currentSession ? this.sessionSummary(this.currentSession) : "Point the camera at the member barcode."
+              );
+              return;
             } catch (error) {
               lastError = error;
             }
           }
 
-          if (!started) {
-            throw lastError || new Error("No camera could be started.");
-          }
-
-          this.scanning = true;
-          this.setStatus(
-            "Scanner ready",
-            this.currentSessionName
-              ? `Current session: ${this.currentSessionName}`
-              : "Point the camera at the member barcode."
-          );
+          throw lastError || new Error("No camera could be started.");
         } catch (error) {
           this.stopScanner();
           this.setStatus(
@@ -586,17 +973,17 @@
           );
         }
       },
+
       stopScanner() {
         this.scanning = false;
         if (this.html5QrCode) {
           this.html5QrCode.stop().catch(() => {}).then(() => {
-            if (el.reader) {
-              el.reader.innerHTML = "";
-            }
+            el.reader.innerHTML = "";
           });
         }
         this.setStatus("Camera stopped", "Manual entry is still available.");
       },
+
       async handleScan(rawValue) {
         const value = String(rawValue || "").trim();
         if (!value) {
@@ -604,18 +991,45 @@
         }
 
         const now = Date.now();
-        if (value === this.lastScannedValue && now - this.lastScannedTime < CONFIG.duplicateCooldownMs) {
+        if (value === this.lastScannedValue && now - this.lastScannedTime < this.settings.duplicateCooldownMs) {
           return;
         }
 
         this.lastScannedValue = value;
         this.lastScannedTime = now;
-        await this.submit(value, "barcode");
+        await this.processScan(value, "barcode");
       },
-      async buildCameraOptions() {
-        const config = this.cameraConfig();
 
-        if (this.isMobileDevice()) {
+      async processScan(rawValue, method) {
+        try {
+          const normalized = this.normalize(rawValue);
+          const decision = this.buildEvent(normalized, method);
+
+          if (decision.blocked) {
+            this.setStatus("Already signed in", decision.message, "error");
+            return;
+          }
+
+          this.applyLocalEvent(decision.event);
+          this.setStatus(
+            decision.event.event_type === "sign_in" ? "Signed in" : "Signed out",
+            `${normalized.memberType} ${normalized.identifier} • ${this.currentSession.sessionName} • Saved locally and syncing in background.`,
+            "success"
+          );
+          this.scheduleSync(50);
+        } catch (error) {
+          this.setStatus("Scan failed", error.message, "error");
+        }
+      },
+
+      async buildCameraOptions() {
+        const config = {
+          fps: 10,
+          qrbox: { width: 420, height: 180 },
+          aspectRatio: 1.7777778
+        };
+
+        if (/android|iphone|ipad|ipod/i.test(navigator.userAgent || "")) {
           return [
             { camera: { facingMode: { exact: "environment" } }, config: config },
             { camera: { facingMode: "environment" }, config: config },
@@ -642,48 +1056,42 @@
           { camera: { facingMode: "user" }, config: config }
         ];
       },
-      cameraConfig() {
-        return {
-          fps: 10,
-          qrbox: { width: 420, height: 180 },
-          aspectRatio: 1.7777778
-        };
-      },
-      isMobileDevice() {
-        return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
-      },
+
       focusInput() {
         el.studentInput.focus();
       },
+
       handleKeyboardScanner(event) {
-        if (!this.unlocked) {
+        if (!this.unlocked || event.ctrlKey || event.metaKey || event.altKey) {
           return;
         }
-        if (event.ctrlKey || event.metaKey || event.altKey) {
-          return;
-        }
+
         if (event.key === "Enter") {
           const value = this.keyboardBuffer.trim();
           this.clearKeyboardBuffer();
           if (value) {
-            this.submit(value, "barcode");
+            this.processScan(value, "barcode");
             event.preventDefault();
           }
           return;
         }
+
         if (event.key.length !== 1) {
           return;
         }
+
         const tagName = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : "";
         if (tagName === "input" || tagName === "textarea") {
           return;
         }
+
         this.keyboardBuffer += event.key;
         if (this.keyboardTimer) {
           clearTimeout(this.keyboardTimer);
         }
         this.keyboardTimer = window.setTimeout(() => this.clearKeyboardBuffer(), 250);
       },
+
       clearKeyboardBuffer() {
         this.keyboardBuffer = "";
         if (this.keyboardTimer) {
@@ -691,85 +1099,55 @@
           this.keyboardTimer = null;
         }
       },
-      async loadConfig() {
-        try {
-          const result = await this.request({ action: "config" });
-          if (result.success && result.projectName) {
-            this.setProjectName(result.projectName);
-          }
-        } catch (_error) {}
-      },
-      async refreshSessionStatus() {
-        try {
-          this.applySessionStatus(await this.request({ action: "session" }));
-        } catch (error) {
-          this.currentSessionName = "";
-          this.currentSessionOpen = false;
-          this.setSessionInfo("Session unavailable", error.message, "closed");
-          this.setStatus("Backend configuration error", error.message, "error");
-        }
-      },
-      async submit(rawValue, method) {
-        try {
-          const normalized = this.normalize(rawValue);
-          this.setStatus("Saving sign-in...", `Submitting ${normalized.identifier}`);
-          const result = await this.request({ action: "signin", studentNumber: normalized.identifier, method });
-          if (result.duplicate) {
-            this.setStatus("Already signed in", `${normalized.memberType} ${normalized.identifier} is already recorded. ${this.sessionDetail(result)}`, "error");
-            return;
-          }
-          if (!result.success) {
-            throw new Error([result.message || "Sign-in failed.", this.sessionDetail(result)].filter(Boolean).join(" "));
-          }
-          this.currentSessionName = result.session || this.currentSessionName;
-          this.setStatus("Sign-in recorded", `${normalized.memberType} ${normalized.identifier} • ${result.session} • ${result.sessionTimes || ""}`.trim(), "success");
-          this.addRecent(result.studentNumber || normalized.identifier, normalized.memberType, method, result.session || "Current session");
-          this.renderRecentSignIns();
-        } catch (error) {
-          this.setStatus("Sign-in failed", error.message, "error");
-          this.refreshSessionStatus();
-        }
-      },
+
       submitManual() {
         if (!this.unlocked) {
           this.setStatus("Password required", "Enter the attendance password first.", "error");
           return;
         }
+
         const value = el.studentInput.value.trim();
         if (!value) {
           this.setStatus("No value entered", "Please enter a student number or barcode.", "error");
           return;
         }
-        this.submit(value, "manual");
+
+        this.processScan(value, "manual");
         el.studentInput.value = "";
         this.focusInput();
       },
-      unlock() {
+
+      async unlock() {
         const password = el.passwordInput.value;
         if (!password) {
           this.failUnlock("Enter the attendance password first.");
           return;
         }
 
-        this.password = password;
-        this.request({ action: "verify" }, false).then((result) => {
+        try {
+          this.password = password;
+          const result = await this.request({ action: "bootstrap" }, false);
           if (!result.success) {
             throw new Error(result.message || "The password is incorrect.");
           }
+
           this.setUnlocked(true);
-          this.setAuthMessage("Access granted. You can now scan cards and record manual sign-ins.", "success");
-          this.applySessionStatus(result);
+          this.setAuthMessage("Access granted. Session state loaded.", "success");
+          this.applyBootstrap(result);
           el.passwordInput.value = "";
+          this.deviceId = this.deviceId || this.loadDeviceId();
           window.setTimeout(() => {
             if (this.unlocked) {
               el.accessCard.classList.add("hidden");
             }
           }, 1200);
           this.focusInput();
-        }).catch((error) => {
+          this.flushSyncQueue();
+        } catch (error) {
           this.failUnlock(error.message || "The password is incorrect.");
-        });
+        }
       },
+
       failUnlock(message) {
         this.password = "";
         this.setUnlocked(false);
@@ -777,6 +1155,7 @@
         this.setStatus("Access denied", message, "error");
         el.passwordInput.select();
       },
+
       bind() {
         el.startBtn.addEventListener("click", () => this.startScanner());
         el.stopBtn.addEventListener("click", () => this.stopScanner());
@@ -794,11 +1173,15 @@
         });
         document.addEventListener("keydown", (event) => this.handleKeyboardScanner(event));
       },
-      async start() {
+
+      start() {
+        this.deviceId = this.loadDeviceId();
         this.setUnlocked(false);
-        this.setAuthMessage("Enter the attendance password before scanning or signing in manually.");
+        this.setAuthMessage("Enter the attendance password before scanning or signing members in or out.");
         this.setSessionInfo("Locked", "Enter the attendance password to load session details.");
-        this.renderRecentSignIns();
+        this.setSyncNote("Session state will appear here after unlock.");
+        this.renderRoster();
+        this.renderRecentActivity();
         this.bind();
         el.passwordInput.focus();
       }

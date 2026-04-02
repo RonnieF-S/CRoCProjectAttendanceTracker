@@ -1,23 +1,16 @@
 var SHEETS = {
-  ATTENDANCE: "Attendance",
   CONFIG: "Config",
+  EVENTS: "Events",
+  ATTENDANCE: "Attendance",
 };
-
-var ATTENDANCE_HEADERS = [
-  "Timestamp",
-  "Date",
-  "Student Number",
-  "Method",
-  "Session Name",
-  "Session Times",
-  "Day",
-  "Log book hours",
-  "Notes",
-];
 
 var CONFIG_HEADERS = [
   "Project Name",
   "Password",
+  "Minimum Attendance Minutes",
+  "Duplicate Cooldown Seconds",
+  "Recent Limit",
+  "Sync Batch Size",
   "Session Name",
   "Day",
   "Start Time",
@@ -26,9 +19,37 @@ var CONFIG_HEADERS = [
   "Active",
 ];
 
-var CONFIG_CACHE_KEY = "configRows:v1";
+var EVENT_HEADERS = [
+  "Timestamp",
+  "Date",
+  "Member ID",
+  "Event Type",
+  "Method",
+  "Project Name",
+  "Session Name",
+  "Session Times",
+  "Day",
+  "Event ID",
+  "Device ID",
+];
+
+var ATTENDANCE_HEADERS = [
+  "Date",
+  "Member ID",
+  "Project Name",
+  "Session Name",
+  "Session Times",
+  "Day",
+  "Sign In",
+  "Sign Out",
+  "Attendance Minutes",
+  "Attendance Hours",
+  "Notes",
+];
+
+var CONFIG_CACHE_KEY = "configRows:v2";
 var CONFIG_CACHE_TTL_SECONDS = 30;
-var SHEETS_READY_CACHE_KEY = "sheetsReady:v1";
+var SHEETS_READY_CACHE_KEY = "sheetsReady:v2";
 var SHEETS_READY_CACHE_TTL_SECONDS = 300;
 
 function doGet(e) {
@@ -40,48 +61,24 @@ function doGet(e) {
   try {
     return respond_(callback, handleAction_(action, e));
   } catch (error) {
-    var session = tryGetCurrentSession_();
-    var nextSession = getNextSession_();
     return respond_(callback, {
       success: false,
       message: error.message || "Unknown error.",
-      projectName: getProjectName_(),
-      session: session ? session.sessionName : "",
-      sessionTimes: session ? session.sessionTimes : "",
-      day: session ? session.day : "",
-      logBookHours: session ? session.logBookHours : "",
-      nextSession: nextSession,
+      projectName: getSettings_().projectName,
+      sessionStatus: getSessionStatus_(),
     });
   }
 }
 
 function handleAction_(action, e) {
-  if (action === "verify") {
+  if (action === "bootstrap" || action === "verify" || action === "session" || action === "config") {
     verifyPassword_(param_(e, "password"));
-    return {
-      success: true,
-      projectName: getProjectName_(),
-      sessionStatus: getSessionStatus_(),
-    };
+    return bootstrapResponse_();
   }
 
-  if (action === "signin") {
+  if (action === "syncEvents") {
     verifyPassword_(param_(e, "password"));
-    return signIn_(param_(e, "studentNumber"), param_(e, "method") || "manual");
-  }
-
-  if (action === "session") {
-    verifyPassword_(param_(e, "password"));
-    return {
-      success: true,
-      projectName: getProjectName_(),
-      sessionStatus: getSessionStatus_(),
-    };
-  }
-
-  if (action === "config") {
-    verifyPassword_(param_(e, "password"));
-    return successPayload_();
+    return syncEvents_(param_(e, "events"));
   }
 
   return {
@@ -95,20 +92,26 @@ function setupSpreadsheet() {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var configSheet = ss.getSheetByName(SHEETS.CONFIG);
+  var eventsSheet = ss.getSheetByName(SHEETS.EVENTS);
   var attendanceSheet = ss.getSheetByName(SHEETS.ATTENDANCE);
 
   if (configSheet.getLastRow() === 1) {
     configSheet.getRange(2, 1, 2, CONFIG_HEADERS.length).setValues([
-      ["Example Project", "CR0C", "Tuesday Build", "Tuesday", "17:00", "20:00", 3, true],
-      ["Example Project", "CR0C", "Thursday Build", "Thursday", "18:00", "20:00", 2, true],
+      ["Example Project", "CR0C", 15, 3, 12, 10, "Tuesday Build", "Tuesday", "17:00", "20:00", 3, true],
+      ["Example Project", "CR0C", 15, 3, 12, 10, "Thursday Build", "Thursday", "18:00", "20:00", 2, true],
     ]);
     clearConfigCache_();
   }
 
   return {
-    attendanceSheet: attendanceSheet,
     configSheet: configSheet,
+    eventsSheet: eventsSheet,
+    attendanceSheet: attendanceSheet,
   };
+}
+
+function rebuildAttendance() {
+  rebuildAttendance_();
 }
 
 function ensureSpreadsheet_(force) {
@@ -118,115 +121,336 @@ function ensureSpreadsheet_(force) {
   }
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var configSheet = getOrCreateSheet_(ss, SHEETS.CONFIG, CONFIG_HEADERS);
-  var attendanceSheet = getOrCreateSheet_(ss, SHEETS.ATTENDANCE, ATTENDANCE_HEADERS);
-  if (configSheet && attendanceSheet) {
-    cache.put(SHEETS_READY_CACHE_KEY, "1", SHEETS_READY_CACHE_TTL_SECONDS);
-  }
+  getOrCreateSheet_(ss, SHEETS.CONFIG, CONFIG_HEADERS);
+  getOrCreateSheet_(ss, SHEETS.EVENTS, EVENT_HEADERS);
+  getOrCreateSheet_(ss, SHEETS.ATTENDANCE, ATTENDANCE_HEADERS);
+  cache.put(SHEETS_READY_CACHE_KEY, "1", SHEETS_READY_CACHE_TTL_SECONDS);
 }
 
-function cleanupAttendanceDuplicates() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ATTENDANCE);
-  if (!sheet || sheet.getLastRow() <= 1) {
-    return { removed: 0 };
-  }
+function bootstrapResponse_() {
+  var settings = getSettings_();
+  var sessionStatus = getSessionStatus_();
+  var sessionDate = todayDateText_();
 
-  var rows = sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getValues();
-  var seen = {};
-  var duplicates = [];
-
-  for (var i = 0; i < rows.length; i += 1) {
-    var key = [toDateText_(rows[i][0]), text_(rows[i][1]).toUpperCase(), text_(rows[i][3])].join("|");
-    if (seen[key]) {
-      duplicates.push(i + 2);
-    } else {
-      seen[key] = true;
-    }
-  }
-
-  deleteRows_(sheet, duplicates);
-  return { removed: duplicates.length };
+  return {
+    success: true,
+    projectName: settings.projectName,
+    settings: {
+      minimumAttendanceMinutes: settings.minimumAttendanceMinutes,
+      duplicateCooldownMs: settings.duplicateCooldownSeconds * 1000,
+      recentLimit: settings.recentLimit,
+      syncBatchSize: settings.syncBatchSize,
+    },
+    sessionStatus: sessionStatus,
+    sessionDate: sessionDate,
+    events: sessionStatus.currentSession ? getEventsForSession_(sessionStatus.currentSession, sessionDate) : [],
+  };
 }
 
-function signIn_(rawIdentifier, method) {
+function syncEvents_(eventsJson) {
+  var events = parseEvents_(eventsJson);
+  if (!events.length) {
+    return {
+      success: true,
+      syncedEventIds: [],
+      appendedCount: 0,
+      duplicateCount: 0,
+    };
+  }
+
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
 
   try {
-    var identifier = normalizeIdentifier_(rawIdentifier);
-    var session = getCurrentSession_();
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ATTENDANCE);
-    var now = new Date();
-    var tz = Session.getScriptTimeZone();
-    var dateText = Utilities.formatDate(now, tz, "yyyy-MM-dd");
-    var timestampText = Utilities.formatDate(now, tz, "yyyy-MM-dd HH:mm:ss");
-    var duplicateRows = findDuplicateRows_(sheet, dateText, identifier, session.sessionName);
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.EVENTS);
+    var existingIds = getExistingEventIds_(sheet);
+    var appendedRows = [];
+    var syncedEventIds = [];
+    var duplicateCount = 0;
 
-    if (duplicateRows.length > 0) {
-      deleteRows_(sheet, duplicateRows.slice(1));
-      return {
-        success: false,
-        duplicate: true,
-        message: "Already signed in for this session.",
-        studentNumber: identifier,
-        session: session.sessionName,
-        sessionTimes: session.sessionTimes,
-        day: session.day,
-        logBookHours: session.logBookHours,
-        timestamp: timestampText,
-      };
+    for (var i = 0; i < events.length; i += 1) {
+      var event = normalizeIncomingEvent_(events[i]);
+      if (existingIds[event.event_id]) {
+        syncedEventIds.push(event.event_id);
+        duplicateCount += 1;
+        continue;
+      }
+
+      existingIds[event.event_id] = true;
+      syncedEventIds.push(event.event_id);
+      appendedRows.push([
+        event.timestamp,
+        event.date,
+        event.member_id,
+        event.event_type,
+        event.method,
+        event.project_name,
+        event.session_name,
+        event.session_times,
+        event.day,
+        event.event_id,
+        event.device_id,
+      ]);
     }
 
-    sheet.appendRow([
-      timestampText,
-      dateText,
-      identifier,
-      method,
-      session.sessionName,
-      session.sessionTimes,
-      session.day,
-      session.logBookHours,
-      "",
-    ]);
+    if (appendedRows.length) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, appendedRows.length, EVENT_HEADERS.length).setValues(appendedRows);
+      rebuildAttendance_();
+    }
 
     return {
       success: true,
-      duplicate: false,
-      message: "Signed in " + identifier + ".",
-      studentNumber: identifier,
-      session: session.sessionName,
-      sessionTimes: session.sessionTimes,
-      day: session.day,
-      logBookHours: session.logBookHours,
-      timestamp: timestampText,
+      syncedEventIds: syncedEventIds,
+      appendedCount: appendedRows.length,
+      duplicateCount: duplicateCount,
     };
   } finally {
     lock.releaseLock();
   }
 }
 
-function getCurrentSession_() {
-  var session = getSessionStatus_().currentSession;
-  if (session) {
-    return session;
+function rebuildAttendance_() {
+  var eventsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.EVENTS);
+  var attendanceSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ATTENDANCE);
+  var notesByKey = getAttendanceNotesByKey_(attendanceSheet);
+  var eventRows = eventsSheet.getLastRow() <= 1
+    ? []
+    : eventsSheet.getRange(2, 1, eventsSheet.getLastRow() - 1, EVENT_HEADERS.length).getValues();
+  var grouped = {};
+  var rows = [];
+
+  for (var i = 0; i < eventRows.length; i += 1) {
+    var event = rowToEvent_(eventRows[i]);
+    var key = [event.date, event.member_id, event.session_name].join("|");
+    if (!grouped[key]) {
+      grouped[key] = [];
+    }
+    grouped[key].push(event);
   }
 
+  for (var key in grouped) {
+    if (!grouped.hasOwnProperty(key)) {
+      continue;
+    }
+
+    var summary = summarizeAttendanceGroup_(grouped[key]);
+    rows.push([
+      summary.date,
+      summary.member_id,
+      summary.project_name,
+      summary.session_name,
+      summary.session_times,
+      summary.day,
+      summary.sign_in,
+      summary.sign_out,
+      summary.attendance_minutes,
+      summary.attendance_hours,
+      notesByKey[key] || "",
+    ]);
+  }
+
+  rows.sort(function (a, b) {
+    if (a[0] !== b[0]) {
+      return a[0] < b[0] ? -1 : 1;
+    }
+    if (a[3] !== b[3]) {
+      return a[3] < b[3] ? -1 : 1;
+    }
+    return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+  });
+
+  attendanceSheet.getRange(1, 1, 1, ATTENDANCE_HEADERS.length).setValues([ATTENDANCE_HEADERS]);
+  attendanceSheet.setFrozenRows(1);
+
+  if (attendanceSheet.getLastRow() > 1) {
+    attendanceSheet.getRange(2, 1, attendanceSheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).clearContent();
+  }
+
+  if (rows.length) {
+    attendanceSheet.getRange(2, 1, rows.length, ATTENDANCE_HEADERS.length).setValues(rows);
+  }
+}
+
+function summarizeAttendanceGroup_(events) {
+  events.sort(function (a, b) {
+    return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+  });
+
+  var first = events[0];
+  var summary = {
+    date: first.date,
+    member_id: first.member_id,
+    project_name: first.project_name,
+    session_name: first.session_name,
+    session_times: first.session_times,
+    day: first.day,
+    sign_in: "",
+    sign_out: "",
+    attendance_minutes: 0,
+    attendance_hours: 0,
+  };
+  var openTimestamp = "";
+
+  for (var i = 0; i < events.length; i += 1) {
+    if (events[i].event_type === "sign_in") {
+      if (!openTimestamp) {
+        openTimestamp = events[i].timestamp;
+        if (!summary.sign_in) {
+          summary.sign_in = events[i].raw_timestamp;
+        }
+      }
+      continue;
+    }
+
+    if (events[i].event_type === "sign_out" && openTimestamp) {
+      summary.sign_out = events[i].raw_timestamp;
+      summary.attendance_minutes += Math.max(0, minutesBetween_(openTimestamp, events[i].timestamp));
+      openTimestamp = "";
+    }
+  }
+
+  summary.attendance_hours = Number((summary.attendance_minutes / 60).toFixed(2));
+  return summary;
+}
+
+function getAttendanceNotesByKey_(sheet) {
+  var notesByKey = {};
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return notesByKey;
+  }
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
+  for (var i = 0; i < rows.length; i += 1) {
+    var key = [text_(rows[i][0]), text_(rows[i][1]).toUpperCase(), text_(rows[i][3])].join("|");
+    notesByKey[key] = text_(rows[i][10]);
+  }
+  return notesByKey;
+}
+
+function getExistingEventIds_(sheet) {
+  var ids = {};
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return ids;
+  }
+
+  var values = sheet.getRange(2, 10, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < values.length; i += 1) {
+    var id = text_(values[i][0]);
+    if (id) {
+      ids[id] = true;
+    }
+  }
+  return ids;
+}
+
+function getEventsForSession_(session, dateText) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.EVENTS);
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return [];
+  }
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, EVENT_HEADERS.length).getValues();
+  var events = [];
+
+  for (var i = 0; i < rows.length; i += 1) {
+    if (toDateText_(rows[i][1]) !== dateText || text_(rows[i][6]) !== session.sessionName) {
+      continue;
+    }
+    events.push(rowToEvent_(rows[i]));
+  }
+
+  events.sort(function (a, b) {
+    return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+  });
+  return events;
+}
+
+function rowToEvent_(row) {
+  return {
+    raw_timestamp: text_(row[0]),
+    timestamp: clientTimestamp_(row[0]),
+    date: toDateText_(row[1]),
+    member_id: text_(row[2]).toUpperCase(),
+    event_type: text_(row[3]),
+    method: text_(row[4]),
+    project_name: text_(row[5]),
+    session_name: text_(row[6]),
+    session_times: text_(row[7]),
+    day: text_(row[8]),
+    event_id: text_(row[9]),
+    device_id: text_(row[10]),
+    synced: true,
+  };
+}
+
+function parseEvents_(eventsJson) {
+  if (!eventsJson) {
+    return [];
+  }
+
+  var parsed = JSON.parse(eventsJson);
+  if (Object.prototype.toString.call(parsed) !== "[object Array]") {
+    throw new Error("Events payload must be an array.");
+  }
+  return parsed;
+}
+
+function normalizeIncomingEvent_(event) {
+  var settings = getSettings_();
+  var memberId = normalizeIdentifier_(event.member_id || event.memberId);
+  var eventType = text_(event.event_type || event.eventType);
+  var timestamp = text_(event.timestamp);
+  var parsedTimestamp = new Date(timestamp);
+  var sessionName = text_(event.session_name || event.sessionName);
+
+  if (eventType !== "sign_in" && eventType !== "sign_out") {
+    throw new Error("Event type must be sign_in or sign_out.");
+  }
+  if (!timestamp || isNaN(parsedTimestamp.getTime())) {
+    throw new Error("Event timestamp is invalid.");
+  }
+  if (!text_(event.event_id || event.eventId)) {
+    throw new Error("Event ID is required.");
+  }
+  if (!sessionName) {
+    throw new Error("Session name is required.");
+  }
+
+  return {
+    event_id: text_(event.event_id || event.eventId),
+    member_id: memberId,
+    project_name: text_(event.project_name || event.projectName) || settings.projectName,
+    session_name: sessionName,
+    event_type: eventType,
+    timestamp: Utilities.formatDate(parsedTimestamp, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss"),
+    date: Utilities.formatDate(parsedTimestamp, Session.getScriptTimeZone(), "yyyy-MM-dd"),
+    device_id: text_(event.device_id || event.deviceId),
+    method: text_(event.method) || "barcode",
+    session_times: text_(event.session_times || event.sessionTimes),
+    day: text_(event.day) || Utilities.formatDate(parsedTimestamp, Session.getScriptTimeZone(), "EEEE"),
+  };
+}
+
+function getCurrentSession_() {
+  var status = getSessionStatus_();
+  if (status.currentSession) {
+    return status.currentSession;
+  }
   throw new Error("No active session matches the current day and time.");
 }
 
 function getSessionStatus_() {
   var rows = getConfigRows_();
   var now = new Date();
-  var tz = Session.getScriptTimeZone();
-  var day = Utilities.formatDate(now, tz, "EEEE");
-  var dayIndex = dayIndex_(day);
-  var currentMinutes = Number(Utilities.formatDate(now, tz, "H")) * 60 + Number(Utilities.formatDate(now, tz, "m"));
+  var day = Utilities.formatDate(now, Session.getScriptTimeZone(), "EEEE");
+  var currentMinutes = Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "H")) * 60 +
+    Number(Utilities.formatDate(now, Session.getScriptTimeZone(), "m"));
+  var currentDayIndex = dayIndex_(day);
   var nextSession = null;
   var nextOffset = null;
 
   for (var i = 0; i < rows.length; i += 1) {
-    var row = rows[i];
-    var session = sessionFromRow_(row);
+    var session = sessionFromRow_(rows[i]);
     if (!session) {
       continue;
     }
@@ -239,7 +463,7 @@ function getSessionStatus_() {
       };
     }
 
-    var offset = minutesUntilSession_(dayIndex, currentMinutes, session.dayIndex, session.startMinutes);
+    var offset = minutesUntilSession_(currentDayIndex, currentMinutes, session.dayIndex, session.startMinutes);
     if (nextOffset === null || offset < nextOffset) {
       nextOffset = offset;
       nextSession = session;
@@ -253,16 +477,42 @@ function getSessionStatus_() {
   };
 }
 
-function getNextSession_() {
-  return getSessionStatus_().nextSession;
+function sessionFromRow_(row) {
+  var sessionName = text_(row[6]);
+  var sessionDay = text_(row[7]);
+  var startTime = text_(row[8]);
+  var endTime = text_(row[9]);
+
+  if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[11])) {
+    return null;
+  }
+
+  var startMinutes = toMinutes_(startTime);
+  var endMinutes = toMinutes_(endTime);
+
+  return {
+    projectName: text_(row[0]) || getSettings_().projectName,
+    sessionName: sessionName,
+    sessionTimes: startTime + " - " + endTime,
+    day: sessionDay,
+    startTime: startTime,
+    endTime: endTime,
+    dayIndex: dayIndex_(sessionDay),
+    startMinutes: startMinutes,
+    endMinutes: endMinutes,
+    logBookHours: Number(text_(row[10])) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
+  };
 }
 
-function getProjectName_() {
-  return getFirstConfigValue_(0, "Project");
-}
-
-function getAccessPassword_() {
-  return getFirstConfigValue_(1, "");
+function getSettings_() {
+  return {
+    projectName: getFirstConfigValue_(0, "Project"),
+    password: getFirstConfigValue_(1, ""),
+    minimumAttendanceMinutes: toPositiveInteger_(getFirstConfigValue_(2, "15"), 15),
+    duplicateCooldownSeconds: toPositiveInteger_(getFirstConfigValue_(3, "3"), 3),
+    recentLimit: toPositiveInteger_(getFirstConfigValue_(4, "12"), 12),
+    syncBatchSize: toPositiveInteger_(getFirstConfigValue_(5, "10"), 10),
+  };
 }
 
 function getConfigRows_() {
@@ -286,22 +536,19 @@ function getConfigRows_() {
       text_(rawRows[i][1]),
       text_(rawRows[i][2]),
       text_(rawRows[i][3]),
-      toTimeText_(rawRows[i][4]),
-      toTimeText_(rawRows[i][5]),
+      text_(rawRows[i][4]),
+      text_(rawRows[i][5]),
       text_(rawRows[i][6]),
       text_(rawRows[i][7]),
+      toTimeText_(rawRows[i][8]),
+      toTimeText_(rawRows[i][9]),
+      text_(rawRows[i][10]),
+      text_(rawRows[i][11]),
     ]);
   }
 
   cache.put(CONFIG_CACHE_KEY, JSON.stringify(rows), CONFIG_CACHE_TTL_SECONDS);
   return rows;
-}
-
-function successPayload_() {
-  return {
-    success: true,
-    projectName: getProjectName_(),
-  };
 }
 
 function getFirstConfigValue_(columnIndex, fallback) {
@@ -312,12 +559,11 @@ function getFirstConfigValue_(columnIndex, fallback) {
       return value;
     }
   }
-
   return fallback;
 }
 
 function verifyPassword_(password) {
-  var configuredPassword = getAccessPassword_();
+  var configuredPassword = getSettings_().password;
   if (!configuredPassword) {
     throw new Error("Backend access password is not configured.");
   }
@@ -326,90 +572,10 @@ function verifyPassword_(password) {
   }
 }
 
-function tryGetCurrentSession_() {
-  try {
-    return getCurrentSession_();
-  } catch (_error) {
-    return null;
-  }
-}
-
-function findDuplicateRows_(sheet, dateText, identifier, sessionName) {
-  if (!sheet || sheet.getLastRow() <= 1) {
-    return [];
-  }
-
-  var rows = sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getValues();
-  var matches = [];
-
-  for (var i = 0; i < rows.length; i += 1) {
-    if (toDateText_(rows[i][0]) === dateText &&
-        text_(rows[i][1]).toUpperCase() === identifier &&
-        text_(rows[i][3]) === sessionName) {
-      matches.push(i + 2);
-    }
-  }
-
-  return matches;
-}
-
-function sessionFromRow_(row) {
-  var projectName = text_(row[0]);
-  var sessionName = text_(row[2]);
-  var sessionDay = text_(row[3]);
-  var startTime = toTimeText_(row[4]);
-  var endTime = toTimeText_(row[5]);
-
-  if (!sessionName || !sessionDay || !startTime || !endTime || !isActive_(row[7])) {
-    return null;
-  }
-
-  var startMinutes = toMinutes_(row[4]);
-  var endMinutes = toMinutes_(row[5]);
-
-  return {
-    projectName: projectName || getProjectName_(),
-    sessionName: sessionName,
-    sessionTimes: startTime + " - " + endTime,
-    day: sessionDay,
-    dayIndex: dayIndex_(sessionDay),
-    startMinutes: startMinutes,
-    endMinutes: endMinutes,
-    logBookHours: Number(row[6]) || Number(((endMinutes - startMinutes) / 60).toFixed(2)),
-  };
-}
-
-function minutesUntilSession_(currentDayIndex, currentMinutes, sessionDayIndex, startMinutes) {
-  var dayDelta = (sessionDayIndex - currentDayIndex + 7) % 7;
-  var minuteDelta = startMinutes - currentMinutes;
-  var total = dayDelta * 24 * 60 + minuteDelta;
-  return total > 0 ? total : total + 7 * 24 * 60;
-}
-
-function normalizeIdentifier_(value) {
-  var cleaned = text_(value).toUpperCase().replace(/\s+/g, "");
-  if (!cleaned) {
-    throw new Error("No student or staff number was provided.");
-  }
-  if (/^\d{8}$/.test(cleaned) || /^\d{6}[A-Z]$/.test(cleaned)) {
-    return cleaned;
-  }
-
-  var suffix = cleaned.slice(3);
-  if (/^\d{8}$/.test(suffix) || /^\d{6}[A-Z]$/.test(suffix)) {
-    return suffix;
-  }
-
-  throw new Error("Identifier must be a student number like xxx12345678 or a staff number like xxx123456A.");
-}
-
 function getOrCreateSheet_(ss, name, headers) {
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.setFrozenRows(1);
-    return sheet;
   }
 
   if (sheet.getLastRow() === 0) {
@@ -434,11 +600,21 @@ function respond_(callback, data) {
     .setMimeType(callback ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
 }
 
-function deleteRows_(sheet, rowNumbers) {
-  rowNumbers.sort(function (a, b) { return b - a; });
-  for (var i = 0; i < rowNumbers.length; i += 1) {
-    sheet.deleteRow(rowNumbers[i]);
+function normalizeIdentifier_(value) {
+  var cleaned = text_(value).toUpperCase().replace(/\s+/g, "");
+  if (!cleaned) {
+    throw new Error("No student or staff number was provided.");
   }
+  if (/^\d{8}$/.test(cleaned) || /^\d{6}[A-Z]$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  var suffix = cleaned.slice(3);
+  if (/^\d{8}$/.test(suffix) || /^\d{6}[A-Z]$/.test(suffix)) {
+    return suffix;
+  }
+
+  throw new Error("Identifier must be a student number like xxx12345678 or a staff number like xxx123456A.");
 }
 
 function toMinutes_(value) {
@@ -477,6 +653,26 @@ function toDateText_(value) {
     : text_(value);
 }
 
+function todayDateText_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
+function minutesUntilSession_(currentDayIndex, currentMinutes, sessionDayIndex, startMinutes) {
+  var dayDelta = (sessionDayIndex - currentDayIndex + 7) % 7;
+  var minuteDelta = startMinutes - currentMinutes;
+  var total = dayDelta * 24 * 60 + minuteDelta;
+  return total > 0 ? total : total + 7 * 24 * 60;
+}
+
+function minutesBetween_(startText, endText) {
+  return Math.round((parseTimestampMs_(endText) - parseTimestampMs_(startText)) / 60000);
+}
+
+function toPositiveInteger_(value, fallback) {
+  var parsed = Number(value);
+  return parsed > 0 ? Math.round(parsed) : fallback;
+}
+
 function isActive_(value) {
   var text = text_(value).toUpperCase();
   return text === "" || text === "TRUE" || text === "YES" || text === "Y" || text === "1";
@@ -501,6 +697,14 @@ function dayIndex_(dayName) {
 
 function clearConfigCache_() {
   CacheService.getScriptCache().remove(CONFIG_CACHE_KEY);
+}
+
+function clientTimestamp_(value) {
+  return text_(value).replace(" ", "T");
+}
+
+function parseTimestampMs_(value) {
+  return new Date(clientTimestamp_(value)).getTime();
 }
 
 function param_(e, key) {
