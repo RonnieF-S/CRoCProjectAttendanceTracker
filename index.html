@@ -1702,7 +1702,7 @@
           this.setAuthMessage("Access granted. Session state loaded.", "success");
           this.applyBootstrap(result);
           this.startPolling();
-          this.refreshCameraDevices();
+          await this.refreshCameraDevices();
           el.passwordInput.value = "";
           this.deviceId = this.deviceId || this.loadDeviceId();
           window.setTimeout(() => {
@@ -1712,6 +1712,9 @@
           }, 1200);
           this.focusInput();
           this.flushSyncQueue();
+          if (this.currentSession) {
+            await this.startScanner();
+          }
         } catch (error) {
           this.failUnlock(error.message || "The password is incorrect.");
         }
