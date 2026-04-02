@@ -41,12 +41,6 @@
       color: var(--text);
     }
 
-    body.scan-success {
-      background:
-        radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 26%),
-        var(--bg);
-    }
-
     h1 {
       margin-bottom: 8px;
     }
@@ -153,24 +147,15 @@
         0 0 0 4px rgba(34, 197, 94, 0.2);
     }
 
-    input, button, select {
+    input, button {
       font-size: 16px;
       padding: 12px 14px;
       border-radius: 12px;
       border: 1px solid var(--border);
     }
 
-    input, select {
+    input {
       width: 100%;
-      background: #fff;
-      color: var(--text);
-    }
-
-    input:focus,
-    select:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 4px var(--focus-ring);
     }
 
     button {
@@ -369,45 +354,6 @@
       color: var(--error-text);
     }
 
-    .scanner-options {
-      margin-top: 16px;
-      display: grid;
-      gap: 12px;
-      padding: 14px;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: #f8fafc;
-    }
-
-    .scanner-options-header {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: baseline;
-    }
-
-    .scanner-options-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .scanner-option {
-      display: grid;
-      gap: 6px;
-    }
-
-    .scanner-option label {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .scanner-note {
-      font-size: 13px;
-      color: var(--muted);
-    }
-
     .hidden {
       display: none;
     }
@@ -424,8 +370,7 @@
       .page-layout,
       .status-layout,
       .scanner-layout,
-      .sidebar-layout,
-      .scanner-options-grid {
+      .sidebar-layout {
         grid-template-columns: 1fr;
       }
 
@@ -478,34 +423,8 @@
           </div>
           <div class="button-row">
             <button id="startBtn">Start Camera</button>
+            <button id="flipBtn" class="secondary">Flip Camera</button>
             <button id="stopBtn" class="secondary">Stop Camera</button>
-          </div>
-          <div class="scanner-options">
-            <div class="scanner-options-header">
-              <strong>Scanner Settings</strong>
-              <span id="scannerNote" class="scanner-note">Code 128 is selected for Curtin cards.</span>
-            </div>
-            <div class="scanner-options-grid">
-              <div class="scanner-option">
-                <label for="barcodeTypeSelect">Barcode type</label>
-                <select id="barcodeTypeSelect">
-                  <option value="code_128_reader">Code 128</option>
-                  <option value="code_39_reader">Code 39</option>
-                  <option value="code_93_reader">Code 93</option>
-                  <option value="codabar_reader">Codabar</option>
-                  <option value="i2of5_reader">Interleaved 2 of 5</option>
-                  <option value="ean_reader">EAN-13</option>
-                  <option value="upc_reader">UPC-A</option>
-                  <option value="auto">Auto detect</option>
-                </select>
-              </div>
-              <div class="scanner-option">
-                <label for="cameraSelect">Camera</label>
-                <select id="cameraSelect">
-                  <option value="auto">Auto</option>
-                </select>
-              </div>
-            </div>
           </div>
           <div class="muted">Best used in Chrome on a phone or laptop.</div>
         </div>
@@ -515,7 +434,7 @@
             <h2>Manual Entry</h2>
             <p class="muted">Use this if the barcode cannot be read.</p>
           </div>
-          <input id="studentNumber" type="text" placeholder="Enter student ID">
+          <input id="studentNumber" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Enter student ID">
           <button id="manualBtn">Process Scan</button>
         </div>
       </div>
@@ -543,21 +462,18 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js" type="text/javascript"></script>
   <script>
     const CONFIG = {
       apiUrl: "https://script.google.com/a/macros/curtinrobotics.org/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
       storagePrefix: "croc-attendance-v3",
       syncRetryMs: 4000,
-      pollIntervalMs: 15000
+      pollIntervalMs: 15000,
+      scannerLibraryUrls: [
+        "https://unpkg.com/html5-qrcode",
+        "https://cdn.jsdelivr.net/npm/html5-qrcode"
+      ]
     };
     const FORCED_SIGN_OUT_METHOD = "session_end";
-    const SCANNER_SETTINGS_KEY = `${CONFIG.storagePrefix}:scanner-settings`;
-    const DEFAULT_SCANNER_SETTINGS = Object.freeze({
-      barcodeType: "code_128_reader",
-      cameraId: "auto",
-      scanWindowEnabled: true
-    });
 
     const el = {
       pageTitle: document.getElementById("pageTitle"),
@@ -575,11 +491,9 @@
       sessionDetail: document.getElementById("sessionDetail"),
       studentInput: document.getElementById("studentNumber"),
       startBtn: document.getElementById("startBtn"),
+      flipBtn: document.getElementById("flipBtn"),
       stopBtn: document.getElementById("stopBtn"),
       manualBtn: document.getElementById("manualBtn"),
-      barcodeTypeSelect: document.getElementById("barcodeTypeSelect"),
-      cameraSelect: document.getElementById("cameraSelect"),
-      scannerNote: document.getElementById("scannerNote"),
       endSessionBtn: document.getElementById("endSessionBtn"),
       rosterCount: document.getElementById("rosterCount"),
       syncNote: document.getElementById("syncNote"),
@@ -595,7 +509,7 @@
         recentLimit: 12,
         syncBatchSize: 10
       },
-      scannerSettings: { ...DEFAULT_SCANNER_SETTINGS },
+      html5QrCode: null,
       scanning: false,
       unlocked: false,
       password: "",
@@ -618,11 +532,66 @@
       pollTimer: null,
       pollInFlight: false,
       deviceId: "",
-      quaggaDetectedHandler: null,
       cameraDevices: [],
+      currentCameraIndex: 0,
+      scannerStartToken: 0,
       successFlashTimer: null,
       successResetTimer: null,
       audioContext: null,
+      scannerLibraryPromise: null,
+
+      async ensureScannerLibrary() {
+        if (window.Html5Qrcode) {
+          return;
+        }
+        if (this.scannerLibraryPromise) {
+          return this.scannerLibraryPromise;
+        }
+
+        this.scannerLibraryPromise = (async () => {
+          for (let index = 0; index < CONFIG.scannerLibraryUrls.length; index += 1) {
+            try {
+              await this.loadScript(CONFIG.scannerLibraryUrls[index]);
+              if (window.Html5Qrcode) {
+                return;
+              }
+            } catch (_error) {
+              // Try the next CDN mirror.
+            }
+          }
+          throw new Error("Barcode scanner library could not be loaded.");
+        })();
+
+        try {
+          await this.scannerLibraryPromise;
+        } catch (error) {
+          this.scannerLibraryPromise = null;
+          throw error;
+        }
+      },
+
+      loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const existing = document.querySelector(`script[data-src="${src}"]`);
+          if (existing) {
+            if (window.Html5Qrcode) {
+              resolve();
+              return;
+            }
+            existing.addEventListener("load", resolve, { once: true });
+            existing.addEventListener("error", reject, { once: true });
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+          script.dataset.src = src;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error(`Failed to load ${src}`));
+          document.head.appendChild(script);
+        });
+      },
 
       setProjectName(projectName) {
         this.projectName = projectName || "Project";
@@ -635,6 +604,7 @@
         el.studentInput.disabled = !unlocked;
         el.manualBtn.disabled = !unlocked;
         el.startBtn.disabled = !unlocked;
+        el.flipBtn.disabled = !unlocked;
         el.endSessionBtn.disabled = !unlocked;
         if (!unlocked) {
           this.stopScanner();
@@ -665,83 +635,126 @@
         el.syncNote.textContent = message;
       },
 
-      loadScannerSettings() {
-        try {
-          const raw = localStorage.getItem(SCANNER_SETTINGS_KEY);
-          const parsed = raw ? JSON.parse(raw) : {};
-          this.scannerSettings = {
-            ...DEFAULT_SCANNER_SETTINGS,
-            ...(parsed && typeof parsed === "object" ? parsed : {})
-          };
-        } catch (_error) {
-          this.scannerSettings = { ...DEFAULT_SCANNER_SETTINGS };
+      scoreCameraLabel(label) {
+        const text = String(label || "").toLowerCase();
+        if (!text) {
+          return 0;
         }
-      },
-
-      saveScannerSettings() {
-        localStorage.setItem(SCANNER_SETTINGS_KEY, JSON.stringify(this.scannerSettings));
-      },
-
-      renderScannerSettings() {
-        el.barcodeTypeSelect.value = this.scannerSettings.barcodeType;
-        const cameraId = this.scannerSettings.cameraId || "auto";
-        if ([...el.cameraSelect.options].some((option) => option.value === cameraId)) {
-          el.cameraSelect.value = cameraId;
-        } else {
-          el.cameraSelect.value = "auto";
+        if (/(back|rear|environment|world)/.test(text)) {
+          return 30;
         }
-        el.scanWindow.classList.toggle("hidden", !this.scannerSettings.scanWindowEnabled);
-        el.scannerNote.textContent = `${this.readableReaderName(this.scannerSettings.barcodeType)} selected${this.scanning ? " • camera running" : ""}.`;
-      },
-
-      readableReaderName(value) {
-        const option = el.barcodeTypeSelect.querySelector(`option[value="${CSS.escape(value)}"]`);
-        return option ? option.textContent : value;
-      },
-
-      getDecoderReaders() {
-        return this.scannerSettings.barcodeType === "auto"
-          ? ["code_128_reader", "code_39_reader", "code_93_reader", "codabar_reader", "i2of5_reader", "ean_reader", "upc_reader"]
-          : [this.scannerSettings.barcodeType];
-      },
-
-      getPreferredConstraints() {
-        if (this.scannerSettings.cameraId && this.scannerSettings.cameraId !== "auto") {
-          return { deviceId: this.scannerSettings.cameraId };
+        if (/(front|user|facetime)/.test(text)) {
+          return 10;
         }
-        if (this.isMobileDevice()) {
-          return { facingMode: "environment" };
+        if (/(virtual|obs|snap|epoccam|droidcam)/.test(text)) {
+          return -10;
         }
-        return true;
+        if (/(hd|1080|4k|ultra)/.test(text)) {
+          return 5;
+        }
+        return 1;
       },
 
-      async populateCameraSelect() {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      async refreshCameraDevices() {
+        if (!window.Html5Qrcode || !window.Html5Qrcode.getCameras) {
+          this.cameraDevices = [];
+          this.currentCameraIndex = 0;
+          this.updateFlipButton();
           return;
         }
 
         try {
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          this.cameraDevices = devices.filter((device) => device.kind === "videoinput");
-          el.cameraSelect.innerHTML = "";
-
-          const autoOption = document.createElement("option");
-          autoOption.value = "auto";
-          autoOption.textContent = "Auto";
-          el.cameraSelect.appendChild(autoOption);
-
-          this.cameraDevices.forEach((device, index) => {
-            const option = document.createElement("option");
-            option.value = device.deviceId;
-            option.textContent = device.label || `Camera ${index + 1}`;
-            el.cameraSelect.appendChild(option);
+          this.cameraDevices = (await Html5Qrcode.getCameras()).sort((a, b) => {
+            return this.scoreCameraLabel(b.label) - this.scoreCameraLabel(a.label);
           });
-
-          this.renderScannerSettings();
         } catch (_error) {
-          el.cameraSelect.innerHTML = "<option value=\"auto\">Auto</option>";
-          this.renderScannerSettings();
+          this.cameraDevices = [];
         }
+
+        if (this.currentCameraIndex >= this.getCameraOptions().length) {
+          this.currentCameraIndex = 0;
+        }
+        this.updateFlipButton();
+      },
+
+      getCameraOptions() {
+        if (this.cameraDevices.length) {
+          return this.cameraDevices.map((device) => ({ deviceId: { exact: device.id } }));
+        }
+
+        if (this.isMobileDevice()) {
+          return [
+            { facingMode: { exact: "environment" } },
+            { facingMode: "environment" },
+            { facingMode: "user" }
+          ];
+        }
+
+        return [
+          { facingMode: "environment" },
+          { facingMode: "user" }
+        ];
+      },
+
+      getPreferredFormats() {
+        const formats = window.Html5QrcodeSupportedFormats;
+        if (!formats) {
+          return [];
+        }
+
+        return [
+          formats.CODE_128,
+          formats.CODE_39,
+          formats.CODABAR,
+          formats.EAN_13,
+          formats.EAN_8
+        ].filter(Boolean);
+      },
+
+      buildQrbox() {
+        const readerWidth = el.reader.clientWidth || window.innerWidth || 480;
+        const width = Math.max(240, Math.min(Math.round(readerWidth * 0.82), 460));
+        const height = Math.max(110, Math.min(Math.round(width * 0.42), 190));
+        return { width, height };
+      },
+
+      scannerProfiles() {
+        const qrbox = this.buildQrbox();
+        const formatsToSupport = this.getPreferredFormats();
+        return [
+          {
+            fps: 12,
+            aspectRatio: 1.7777778,
+            qrbox: qrbox,
+            formatsToSupport: formatsToSupport,
+            videoConstraints: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 24, max: 30 }
+            }
+          },
+          {
+            fps: 10,
+            aspectRatio: 1.7777778,
+            qrbox: qrbox,
+            formatsToSupport: formatsToSupport,
+            videoConstraints: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 20, max: 24 }
+            }
+          },
+          {
+            fps: 8,
+            qrbox: qrbox,
+            formatsToSupport: formatsToSupport
+          }
+        ];
+      },
+
+      updateFlipButton() {
+        const options = this.getCameraOptions();
+        el.flipBtn.disabled = !this.unlocked || (this.cameraDevices.length > 0 && options.length <= 1);
       },
 
       ensureAudioContext() {
@@ -778,10 +791,8 @@
       },
 
       flashScannerSuccess() {
-        document.body.classList.remove("scan-success");
         el.scanWindow.classList.remove("flash-success");
         void el.scanWindow.offsetWidth;
-        document.body.classList.add("scan-success");
         el.scanWindow.classList.add("flash-success");
 
         if (this.successFlashTimer) {
@@ -796,7 +807,7 @@
         }, 220);
 
         this.successResetTimer = window.setTimeout(() => {
-          document.body.classList.remove("scan-success");
+          el.scanWindow.classList.remove("flash-success");
         }, 450);
       },
 
@@ -1366,66 +1377,71 @@
           this.setStatus("Password required", "Enter the attendance password first.", "error");
           return;
         }
+        if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+          this.setStatus("Camera unavailable", "Camera access requires HTTPS on this browser. Use the hosted page, manual entry, or a USB barcode scanner.", "error");
+          return;
+        }
         if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
           this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
           return;
         }
-        if (!window.Quagga) {
-          this.setStatus("Scanner unavailable", "Barcode scanning library did not load. Use manual entry.", "error");
-          return;
-        }
 
+        const startToken = ++this.scannerStartToken;
         try {
+          await this.ensureScannerLibrary();
+          if (!this.html5QrCode) {
+            this.html5QrCode = new Html5Qrcode("reader");
+          }
+
           await this.stopScanner(true);
+          await this.refreshCameraDevices();
+          const cameraOptions = this.getCameraOptions();
+          if (!cameraOptions.length) {
+            throw new Error("No camera could be started.");
+          }
 
-          await new Promise((resolve, reject) => {
-            window.Quagga.init({
-              inputStream: {
-                type: "LiveStream",
-                target: el.reader,
-                constraints: {
-                  audio: false,
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 },
-                  ...this.getPreferredConstraints()
-                },
-                area: this.scannerSettings.scanWindowEnabled ? {
-                  top: "30%",
-                  right: "8%",
-                  left: "8%",
-                  bottom: "30%"
-                } : undefined
-              },
-              locator: {
-                patchSize: "medium",
-                halfSample: false
-              },
-              numOfWorkers: Math.max(2, Math.min(4, navigator.hardwareConcurrency || 2)),
-              locate: true,
-              decoder: {
-                readers: this.getDecoderReaders()
-              }
-            }, (error) => {
-              if (error) {
-                reject(error);
-                return;
-              }
-              resolve();
-            });
-          });
+          if (this.currentCameraIndex >= cameraOptions.length) {
+            this.currentCameraIndex = 0;
+          }
 
-          this.quaggaDetectedHandler = (result) => {
-            const code = result && result.codeResult && result.codeResult.code ? result.codeResult.code : "";
-            if (code) {
-              this.handleScan(code);
+          let lastError = null;
+          for (let offset = 0; offset < cameraOptions.length; offset += 1) {
+            const index = (this.currentCameraIndex + offset) % cameraOptions.length;
+            const cameraOption = cameraOptions[index];
+            const profiles = this.scannerProfiles();
+
+            for (let profileIndex = 0; profileIndex < profiles.length; profileIndex += 1) {
+              try {
+                await this.html5QrCode.start(
+                  cameraOption,
+                  profiles[profileIndex],
+                  (decodedText) => this.handleScan(decodedText),
+                  () => {}
+                );
+                this.currentCameraIndex = index;
+                lastError = null;
+                break;
+              } catch (error) {
+                lastError = error;
+              }
             }
-          };
 
-          window.Quagga.onDetected(this.quaggaDetectedHandler);
-          window.Quagga.start();
+            if (!lastError) {
+              break;
+            }
+          }
+
+          if (lastError) {
+            throw lastError;
+          }
+
+          if (startToken !== this.scannerStartToken) {
+            await this.stopScanner(true);
+            return;
+          }
+
           this.scanning = true;
-          await this.populateCameraSelect();
-          this.renderScannerSettings();
+          this.updateFlipButton();
           this.setStatus(
             "Scanner ready",
             this.currentSession ? this.sessionSummary(this.currentSession) : "Point the camera at the member barcode."
@@ -1442,21 +1458,38 @@
 
       async stopScanner(silent = false) {
         this.scanning = false;
-        if (window.Quagga) {
+        if (this.html5QrCode) {
           try {
-            if (this.quaggaDetectedHandler) {
-              window.Quagga.offDetected(this.quaggaDetectedHandler);
-              this.quaggaDetectedHandler = null;
-            }
-            window.Quagga.stop();
+            await this.html5QrCode.stop();
           } catch (_error) {
-            // Ignore stop errors and reset the viewport below.
+            // Ignore stop failures if the camera was not running.
           }
         }
         el.reader.innerHTML = "";
-        this.renderScannerSettings();
+        this.updateFlipButton();
         if (!silent) {
           this.setStatus("Camera stopped", "Manual entry is still available.");
+        }
+      },
+
+      async switchCamera() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+
+        await this.refreshCameraDevices();
+        const cameraOptions = this.getCameraOptions();
+        if (cameraOptions.length <= 1) {
+          this.setStatus("Single camera only", "No alternative camera input is available on this device.", "error");
+          return;
+        }
+
+        this.currentCameraIndex = (this.currentCameraIndex + 1) % cameraOptions.length;
+        if (this.scanning) {
+          await this.startScanner();
+        } else {
+          this.setStatus("Camera changed", "Press Start Camera to use the selected camera.", "");
         }
       },
 
@@ -1568,17 +1601,6 @@
         this.focusInput();
       },
 
-      async applyScannerSettings() {
-        this.scannerSettings.barcodeType = el.barcodeTypeSelect.value || DEFAULT_SCANNER_SETTINGS.barcodeType;
-        this.scannerSettings.cameraId = el.cameraSelect.value || "auto";
-        this.saveScannerSettings();
-        this.renderScannerSettings();
-
-        if (this.scanning) {
-          await this.startScanner();
-        }
-      },
-
       async unlock() {
         const password = el.passwordInput.value;
         if (!password) {
@@ -1597,7 +1619,7 @@
           this.setAuthMessage("Access granted. Session state loaded.", "success");
           this.applyBootstrap(result);
           this.startPolling();
-          this.populateCameraSelect();
+          this.refreshCameraDevices();
           el.passwordInput.value = "";
           this.deviceId = this.deviceId || this.loadDeviceId();
           window.setTimeout(() => {
@@ -1622,12 +1644,11 @@
 
       bind() {
         el.startBtn.addEventListener("click", () => this.startScanner());
+        el.flipBtn.addEventListener("click", () => this.switchCamera());
         el.stopBtn.addEventListener("click", () => this.stopScanner());
         el.manualBtn.addEventListener("click", () => this.submitManual());
         el.endSessionBtn.addEventListener("click", () => this.endSessionSignOutAll());
         el.unlockBtn.addEventListener("click", () => this.unlock());
-        el.barcodeTypeSelect.addEventListener("change", () => this.applyScannerSettings());
-        el.cameraSelect.addEventListener("change", () => this.applyScannerSettings());
         el.studentInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             this.submitManual();
@@ -1643,16 +1664,15 @@
 
       start() {
         this.deviceId = this.loadDeviceId();
-        this.loadScannerSettings();
+        this.ensureScannerLibrary().catch(() => {});
         this.setUnlocked(false);
         this.setAuthMessage("Enter the attendance password before scanning or signing members in or out.");
         this.setSessionInfo("Locked", "Enter the attendance password to load session details.");
         this.setSyncNote("Session state will appear here after unlock.");
-        this.renderScannerSettings();
+        this.updateFlipButton();
         this.renderRoster();
         this.renderRecentActivity();
         this.bind();
-        this.populateCameraSelect();
         el.passwordInput.focus();
       }
     };
