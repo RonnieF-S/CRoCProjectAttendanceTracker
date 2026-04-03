@@ -165,9 +165,15 @@ After saving the script:
 2. Choose `Web app`
 3. Set:
    - `Execute as`: `Me`
-   - `Who has access`: the option that matches how you want to run the tracker
+   - `Who has access`: `Anyone`
 4. Click `Deploy`
 5. Copy the web app URL
+
+For project admins:
+
+- use `Execute as: Me`
+- use `Who has access: Anyone`
+- these settings let the public frontend call the Apps Script backend correctly
 
 If you change the backend later:
 
