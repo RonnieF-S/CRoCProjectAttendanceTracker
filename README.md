@@ -117,6 +117,7 @@ The backend operational settings are near the top of [`Code.gs`](/Users/ronniefe
 var SETTINGS = {
   duplicateCooldownSeconds: 10,
   standardizedFallbackAttendanceHours: 1,
+  finalizationGraceSeconds: 30,
   recentLimit: 12,
   syncBatchSize: 10,
 };
@@ -126,6 +127,7 @@ What they control:
 
 - `duplicateCooldownSeconds`: short cooldown that prevents an immediate second scan from accidentally signing someone out
 - `standardizedFallbackAttendanceHours`: fallback attendance used for an unfinished final interval at session end
+- `finalizationGraceSeconds`: short delay after session end before attendance is finalized, to allow late syncs to arrive
 - `recentLimit`: how many recent events the frontend shows
 - `syncBatchSize`: how many queued events are sent to the backend at once
 
@@ -223,7 +225,9 @@ Notes:
 - multiple sign-in / sign-out pairs in one session are summed
 - if someone signs in and never signs out, and the session has ended, the unfinished final interval uses the backend fallback setting
 - if the operator uses `End Session (Sign Out All)`, every remaining signed-in member is signed out with the same fallback setting
-- `Notes` is available for manual comments
+- `Notes` stays blank for normal paired sign-in / sign-out attendance
+- `Notes` is filled automatically only when fallback time is used
+- fallback notes record whether the fallback came from `End Session (Sign Out All)` or from a missing sign-out before session end, plus the relevant event time
 - once attendance rows for a session have been appended, they are not rebuilt or overwritten later
 
 You can edit past attendance rows manually after they have been imported. Future sessions append new rows only.
@@ -268,7 +272,8 @@ End-of-session flow:
 - if members are still signed in, use `End Session (Sign Out All)`
 - this creates forced sign-out events for everyone still on the roster
 - those forced sign-outs use the same backend-configured fallback interval as members who never signed out before session end
-- once the configured finish time has passed, the backend finalizes that session from `Events`
+- pressing `End Session (Sign Out All)` does not close the session early; students can still sign in again until the scheduled `End Time`
+- once the configured finish time has passed and the `finalizationGraceSeconds` delay has elapsed, the backend finalizes that session from `Events`
 - finalization appends one attendance row per member for that session/date
 - late syncs for an already finalized session are ignored
 
@@ -328,11 +333,15 @@ Check:
 
 ### Attendance is not appearing yet
 
-Attendance is only appended after the configured session end time has passed. Before that, only `Events` updates.
+Attendance is only appended after the configured session end time has passed and the short finalization grace period has elapsed. Before that, only `Events` updates.
 
 ### Attendance looks lower than expected for someone who forgot to sign out
 
 That is expected if they were left signed in until session end or signed out via `End Session (Sign Out All)`. In those cases the backend uses `standardizedFallbackAttendanceHours` for the unfinished final interval instead of calculating the full elapsed time.
+
+### Why is there text in the `Notes` column for some attendance rows
+
+That means fallback time was used instead of a normal paired sign-in / sign-out duration. The note tells you whether it came from `End Session (Sign Out All)` or from a missing sign-out before the session was finalized.
 
 ### I edited old attendance rows and do not want them overwritten
 

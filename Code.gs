@@ -286,7 +286,7 @@ function finalizeEndedSessions_() {
         summary.sign_in,
         summary.sign_out,
         summary.attendance_hours,
-        "",
+        summary.notes,
       ]);
       attendanceKeys[memberKey] = true;
     }
@@ -330,6 +330,7 @@ function summarizeAttendanceGroup_(events) {
     sign_in: "",
     sign_out: "",
     attendance_hours: 0,
+    notes: "",
   };
   var openTimestamp = "";
 
@@ -348,6 +349,7 @@ function summarizeAttendanceGroup_(events) {
       summary.sign_out = events[i].raw_timestamp;
       if (events[i].method === FORCED_SIGN_OUT_METHOD) {
         summary.attendance_hours += settingsFallbackAttendanceHours_();
+        summary.notes = fallbackNoteForForcedSignOut_(events[i]);
       } else {
         summary.attendance_hours += minutesBetween_(openTimestamp, events[i].timestamp) / 60;
       }
@@ -357,6 +359,7 @@ function summarizeAttendanceGroup_(events) {
 
   if (openTimestamp && sessionReadyForFinalization_(summary.date, summary.session_times)) {
     summary.attendance_hours += settingsFallbackAttendanceHours_();
+    summary.notes = fallbackNoteForMissingSignOut_(summary, openTimestamp);
   }
 
   summary.attendance_hours = Number(summary.attendance_hours.toFixed(2));
@@ -780,6 +783,20 @@ function getSessionDisplayByKey_(sessionKey, fallbackName, fallbackTimes, fallba
     sessionTimes: fallbackTimes,
     day: fallbackDay,
   };
+}
+
+function fallbackNoteForForcedSignOut_(event) {
+  return "Fallback time used: End Session (Sign Out All) at " + text_(event.raw_timestamp || event.timestamp);
+}
+
+function fallbackNoteForMissingSignOut_(summary, openTimestamp) {
+  return "Fallback time used: no sign_out before session end. Last sign_in at " + text_(openTimestamp) +
+    ". Session ended at " + sessionEndTimestampText_(summary.date, summary.session_times);
+}
+
+function sessionEndTimestampText_(dateText, sessionTimes) {
+  var endTime = sessionEndTime_(sessionTimes);
+  return endTime ? dateText + " " + endTime + ":00" : dateText;
 }
 
 function minutesBetween_(startText, endText) {
