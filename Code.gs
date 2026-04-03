@@ -50,6 +50,7 @@ var FINALIZED_SESSION_PREFIX = "finalized:";
 var SETTINGS = {
   duplicateCooldownSeconds: 10,
   standardizedFallbackAttendanceHours: 1,
+  finalizationGraceSeconds: 30,
   recentLimit: 12,
   syncBatchSize: 10,
 };
@@ -144,6 +145,7 @@ function bootstrapResponse_() {
     settings: {
       duplicateCooldownMs: settings.duplicateCooldownSeconds * 1000,
       standardizedFallbackAttendanceHours: settings.standardizedFallbackAttendanceHours,
+      finalizationGraceSeconds: settings.finalizationGraceSeconds,
       recentLimit: settings.recentLimit,
       syncBatchSize: settings.syncBatchSize,
     },
@@ -255,7 +257,7 @@ function finalizeEndedSessions_() {
     }
 
     var sessionEvents = bySessionDate[sessionDateKey];
-    if (!sessionEvents.length || !sessionHasEnded_(sessionEvents[0].date, sessionEvents[0].session_times)) {
+    if (!sessionEvents.length || !sessionReadyForFinalization_(sessionEvents[0].date, sessionEvents[0].session_times)) {
       continue;
     }
 
@@ -353,7 +355,7 @@ function summarizeAttendanceGroup_(events) {
     }
   }
 
-  if (openTimestamp && sessionHasEnded_(summary.date, summary.session_times)) {
+  if (openTimestamp && sessionReadyForFinalization_(summary.date, summary.session_times)) {
     summary.attendance_hours += settingsFallbackAttendanceHours_();
   }
 
@@ -581,6 +583,7 @@ function getSettings_() {
     password: getAccessPassword_(),
     duplicateCooldownSeconds: SETTINGS.duplicateCooldownSeconds,
     standardizedFallbackAttendanceHours: SETTINGS.standardizedFallbackAttendanceHours,
+    finalizationGraceSeconds: SETTINGS.finalizationGraceSeconds,
     recentLimit: SETTINGS.recentLimit,
     syncBatchSize: SETTINGS.syncBatchSize,
   };
@@ -588,6 +591,10 @@ function getSettings_() {
 
 function settingsFallbackAttendanceHours_() {
   return toPositiveNumber_(SETTINGS.standardizedFallbackAttendanceHours, 1);
+}
+
+function settingsFinalizationGraceSeconds_() {
+  return toPositiveInteger_(SETTINGS.finalizationGraceSeconds, 30);
 }
 
 function getProjectName_() {
@@ -785,6 +792,14 @@ function minutesBetween_(startText, endText) {
 }
 
 function sessionHasEnded_(dateText, sessionTimes) {
+  return currentTimeReachedSessionEnd_(dateText, sessionTimes, 0);
+}
+
+function sessionReadyForFinalization_(dateText, sessionTimes) {
+  return currentTimeReachedSessionEnd_(dateText, sessionTimes, settingsFinalizationGraceSeconds_());
+}
+
+function currentTimeReachedSessionEnd_(dateText, sessionTimes, graceSeconds) {
   var endTime = sessionEndTime_(sessionTimes);
   if (!endTime) {
     return false;
@@ -799,9 +814,12 @@ function sessionHasEnded_(dateText, sessionTimes) {
   }
 
   var now = new Date();
-  var currentMinutes = Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "H")) * 60 +
-    Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "m"));
-  return currentMinutes >= toMinutes_(endTime);
+  var currentSeconds = (
+    Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "H")) * 60 * 60
+  ) + (
+    Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "m")) * 60
+  ) + Number(Utilities.formatDate(now, SCRIPT_TIMEZONE, "s"));
+  return currentSeconds >= (toMinutes_(endTime) * 60) + graceSeconds;
 }
 
 function sessionEndTime_(sessionTimes) {
@@ -834,6 +852,11 @@ function pad2_(value) {
 function toPositiveNumber_(value, fallback) {
   var parsed = Number(value);
   return parsed > 0 ? parsed : fallback;
+}
+
+function toPositiveInteger_(value, fallback) {
+  var parsed = Number(value);
+  return parsed > 0 ? Math.round(parsed) : fallback;
 }
 
 function dayIndex_(dayName) {
