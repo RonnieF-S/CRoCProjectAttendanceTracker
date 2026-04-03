@@ -214,12 +214,12 @@ function syncEvents_(eventsJson) {
 function rebuildAttendance_() {
   var eventsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.EVENTS);
   var attendanceSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ATTENDANCE);
-  var notesByKey = getAttendanceNotesByKey_(attendanceSheet);
   var eventRows = eventsSheet.getLastRow() <= 1
     ? []
     : eventsSheet.getRange(2, 1, eventsSheet.getLastRow() - 1, EVENT_HEADERS.length).getValues();
   var grouped = {};
-  var rows = [];
+  var derivedRows = [];
+  var derivedKeys = {};
 
   for (var i = 0; i < eventRows.length; i += 1) {
     var event = rowToEvent_(eventRows[i]);
@@ -236,7 +236,8 @@ function rebuildAttendance_() {
     }
 
     var summary = summarizeAttendanceGroup_(grouped[key]);
-    rows.push([
+    derivedKeys[key] = true;
+    derivedRows.push([
       summary.date,
       summary.member_id,
       summary.project_name,
@@ -246,9 +247,22 @@ function rebuildAttendance_() {
       summary.sign_in,
       summary.sign_out,
       summary.attendance_hours,
-      notesByKey[key] || "",
+      "",
     ]);
   }
+
+  var existingAttendance = getExistingAttendanceRows_(attendanceSheet, derivedKeys);
+  var notesByKey = existingAttendance.notesByKey;
+  for (var j = 0; j < derivedRows.length; j += 1) {
+    var derivedKey = attendanceGroupKey_(
+      text_(derivedRows[j][0]),
+      text_(derivedRows[j][1]).toUpperCase(),
+      buildSessionKeyFromParts_(text_(derivedRows[j][2]), text_(derivedRows[j][5]), text_(derivedRows[j][4]))
+    );
+    derivedRows[j][9] = notesByKey[derivedKey] || "";
+  }
+
+  var rows = derivedRows.concat(existingAttendance.manualRows);
 
   rows.sort(function (a, b) {
     if (a[0] !== b[0]) {
@@ -323,10 +337,14 @@ function summarizeAttendanceGroup_(events) {
   return summary;
 }
 
-function getAttendanceNotesByKey_(sheet) {
-  var notesByKey = {};
+function getExistingAttendanceRows_(sheet, derivedKeys) {
+  var result = {
+    notesByKey: {},
+    manualRows: [],
+  };
+
   if (!sheet || sheet.getLastRow() <= 1) {
-    return notesByKey;
+    return result;
   }
 
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
@@ -336,9 +354,16 @@ function getAttendanceNotesByKey_(sheet) {
       text_(rows[i][1]).toUpperCase(),
       buildSessionKeyFromParts_(text_(rows[i][2]), text_(rows[i][5]), text_(rows[i][4]))
     );
-    notesByKey[key] = text_(rows[i][9]);
+
+    if (derivedKeys[key]) {
+      result.notesByKey[key] = text_(rows[i][9]);
+      continue;
+    }
+
+    result.manualRows.push(rows[i]);
   }
-  return notesByKey;
+
+  return result;
 }
 
 function getExistingEventIds_(sheet) {
