@@ -46,8 +46,10 @@ var CONFIG_CACHE_KEY = "configRows:v2";
 var CONFIG_CACHE_TTL_SECONDS = 30;
 var SHEETS_READY_CACHE_KEY = "sheetsReady:v2";
 var SHEETS_READY_CACHE_TTL_SECONDS = 300;
+var FINALIZED_SESSION_PREFIX = "finalized:";
 var SETTINGS = {
   duplicateCooldownSeconds: 10,
+  standardizedFallbackAttendanceHours: 1,
   recentLimit: 12,
   syncBatchSize: 10,
 };
@@ -113,7 +115,7 @@ function setupSpreadsheet() {
 }
 
 function rebuildAttendance() {
-  rebuildAttendance_();
+  finalizeEndedSessions_();
 }
 
 function ensureSpreadsheet_(force) {
@@ -130,6 +132,8 @@ function ensureSpreadsheet_(force) {
 }
 
 function bootstrapResponse_() {
+  finalizeEndedSessions_();
+
   var settings = getSettings_();
   var sessionStatus = getSessionStatus_();
   var sessionDate = todayDateText_();
@@ -139,6 +143,7 @@ function bootstrapResponse_() {
     projectName: settings.projectName,
     settings: {
       duplicateCooldownMs: settings.duplicateCooldownSeconds * 1000,
+      standardizedFallbackAttendanceHours: settings.standardizedFallbackAttendanceHours,
       recentLimit: settings.recentLimit,
       syncBatchSize: settings.syncBatchSize,
     },
@@ -154,8 +159,10 @@ function syncEvents_(eventsJson) {
     return {
       success: true,
       syncedEventIds: [],
+      rejectedEventIds: [],
       appendedCount: 0,
       duplicateCount: 0,
+      rejectedCount: 0,
     };
   }
 
@@ -167,10 +174,18 @@ function syncEvents_(eventsJson) {
     var existingIds = getExistingEventIds_(sheet);
     var appendedRows = [];
     var syncedEventIds = [];
+    var rejectedEventIds = [];
     var duplicateCount = 0;
+    var rejectedCount = 0;
 
     for (var i = 0; i < events.length; i += 1) {
       var event = normalizeIncomingEvent_(events[i]);
+      if (isSessionFinalized_(finalizedSessionKey_(event.date, event.session_key))) {
+        rejectedEventIds.push(event.event_id);
+        rejectedCount += 1;
+        continue;
+      }
+
       if (existingIds[event.event_id]) {
         syncedEventIds.push(event.event_id);
         duplicateCount += 1;
@@ -197,92 +212,101 @@ function syncEvents_(eventsJson) {
 
     if (appendedRows.length) {
       sheet.getRange(sheet.getLastRow() + 1, 1, appendedRows.length, EVENT_HEADERS.length).setValues(appendedRows);
-      rebuildAttendance_();
+      finalizeEndedSessions_();
     }
 
     return {
       success: true,
       syncedEventIds: syncedEventIds,
+      rejectedEventIds: rejectedEventIds,
       appendedCount: appendedRows.length,
       duplicateCount: duplicateCount,
+      rejectedCount: rejectedCount,
     };
   } finally {
     lock.releaseLock();
   }
 }
 
-function rebuildAttendance_() {
+function finalizeEndedSessions_() {
   var eventsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.EVENTS);
   var attendanceSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ATTENDANCE);
   var eventRows = eventsSheet.getLastRow() <= 1
     ? []
     : eventsSheet.getRange(2, 1, eventsSheet.getLastRow() - 1, EVENT_HEADERS.length).getValues();
-  var grouped = {};
-  var derivedRows = [];
-  var derivedKeys = {};
+  var attendanceKeys = getAttendanceRowKeys_(attendanceSheet);
+  var bySessionDate = {};
 
   for (var i = 0; i < eventRows.length; i += 1) {
     var event = rowToEvent_(eventRows[i]);
-    var key = attendanceGroupKey_(event.date, event.member_id, event.session_key);
-    if (!grouped[key]) {
-      grouped[key] = [];
+    var sessionDateKey = finalizedSessionKey_(event.date, event.session_key);
+    if (!bySessionDate[sessionDateKey]) {
+      bySessionDate[sessionDateKey] = [];
     }
-    grouped[key].push(event);
+    bySessionDate[sessionDateKey].push(event);
   }
 
-  for (var key in grouped) {
-    if (!grouped.hasOwnProperty(key)) {
+  var rowsToAppend = [];
+  var finalizedKeys = [];
+
+  for (var sessionDateKey in bySessionDate) {
+    if (!bySessionDate.hasOwnProperty(sessionDateKey) || isSessionFinalized_(sessionDateKey)) {
       continue;
     }
 
-    var summary = summarizeAttendanceGroup_(grouped[key]);
-    derivedKeys[key] = true;
-    derivedRows.push([
-      summary.date,
-      summary.member_id,
-      summary.project_name,
-      summary.session_name,
-      summary.session_times,
-      summary.day,
-      summary.sign_in,
-      summary.sign_out,
-      summary.attendance_hours,
-      "",
-    ]);
-  }
-
-  var existingAttendance = getExistingAttendanceRows_(attendanceSheet, derivedKeys);
-  var notesByKey = existingAttendance.notesByKey;
-  for (var j = 0; j < derivedRows.length; j += 1) {
-    var derivedKey = attendanceGroupKey_(
-      text_(derivedRows[j][0]),
-      text_(derivedRows[j][1]).toUpperCase(),
-      buildSessionKeyFromParts_(text_(derivedRows[j][2]), text_(derivedRows[j][5]), text_(derivedRows[j][4]))
-    );
-    derivedRows[j][9] = notesByKey[derivedKey] || "";
-  }
-
-  var rows = derivedRows.concat(existingAttendance.manualRows);
-
-  rows.sort(function (a, b) {
-    if (a[0] !== b[0]) {
-      return a[0] < b[0] ? -1 : 1;
+    var sessionEvents = bySessionDate[sessionDateKey];
+    if (!sessionEvents.length || !sessionHasEnded_(sessionEvents[0].date, sessionEvents[0].session_times)) {
+      continue;
     }
-    if (a[3] !== b[3]) {
-      return a[3] < b[3] ? -1 : 1;
+
+    var grouped = {};
+    for (var j = 0; j < sessionEvents.length; j += 1) {
+      var memberKey = attendanceGroupKey_(sessionEvents[j].date, sessionEvents[j].member_id, sessionEvents[j].session_key);
+      if (!grouped[memberKey]) {
+        grouped[memberKey] = [];
+      }
+      grouped[memberKey].push(sessionEvents[j]);
     }
-    return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
-  });
 
-  attendanceSheet.getRange(1, 1, 1, ATTENDANCE_HEADERS.length).setValues([ATTENDANCE_HEADERS]);
-  attendanceSheet.setFrozenRows(1);
+    for (var memberKey in grouped) {
+      if (!grouped.hasOwnProperty(memberKey) || attendanceKeys[memberKey]) {
+        continue;
+      }
 
-  if (attendanceSheet.getLastRow() > 1) {
-    attendanceSheet.getRange(2, 1, attendanceSheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).clearContent();
+      var summary = summarizeAttendanceGroup_(grouped[memberKey]);
+      rowsToAppend.push([
+        summary.date,
+        summary.member_id,
+        summary.project_name,
+        summary.session_name,
+        summary.session_times,
+        summary.day,
+        summary.sign_in,
+        summary.sign_out,
+        summary.attendance_hours,
+        "",
+      ]);
+      attendanceKeys[memberKey] = true;
+    }
+
+    finalizedKeys.push(sessionDateKey);
   }
 
-  if (rows.length) {
-    attendanceSheet.getRange(2, 1, rows.length, ATTENDANCE_HEADERS.length).setValues(rows);
+  if (rowsToAppend.length) {
+    rowsToAppend.sort(function (a, b) {
+      if (a[0] !== b[0]) {
+        return a[0] < b[0] ? -1 : 1;
+      }
+      if (a[3] !== b[3]) {
+        return a[3] < b[3] ? -1 : 1;
+      }
+      return a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0;
+    });
+    attendanceSheet.getRange(attendanceSheet.getLastRow() + 1, 1, rowsToAppend.length, ATTENDANCE_HEADERS.length).setValues(rowsToAppend);
+  }
+
+  for (var k = 0; k < finalizedKeys.length; k += 1) {
+    setSessionFinalized_(finalizedKeys[k]);
   }
 }
 
@@ -321,7 +345,7 @@ function summarizeAttendanceGroup_(events) {
     if (events[i].event_type === "sign_out" && openTimestamp) {
       summary.sign_out = events[i].raw_timestamp;
       if (events[i].method === FORCED_SIGN_OUT_METHOD) {
-        summary.attendance_hours = Math.max(summary.attendance_hours, 1);
+        summary.attendance_hours += settingsFallbackAttendanceHours_();
       } else {
         summary.attendance_hours += minutesBetween_(openTimestamp, events[i].timestamp) / 60;
       }
@@ -330,40 +354,32 @@ function summarizeAttendanceGroup_(events) {
   }
 
   if (openTimestamp && sessionHasEnded_(summary.date, summary.session_times)) {
-    summary.attendance_hours = Math.max(summary.attendance_hours, 1);
+    summary.attendance_hours += settingsFallbackAttendanceHours_();
   }
 
   summary.attendance_hours = Number(summary.attendance_hours.toFixed(2));
   return summary;
 }
 
-function getExistingAttendanceRows_(sheet, derivedKeys) {
-  var result = {
-    notesByKey: {},
-    manualRows: [],
-  };
-
+function getAttendanceRowKeys_(sheet) {
+  var keys = {};
   if (!sheet || sheet.getLastRow() <= 1) {
-    return result;
+    return keys;
   }
 
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ATTENDANCE_HEADERS.length).getValues();
   for (var i = 0; i < rows.length; i += 1) {
-    var key = attendanceGroupKey_(
+    if (!hasAttendanceContent_(rows[i])) {
+      continue;
+    }
+    keys[attendanceGroupKey_(
       text_(rows[i][0]),
       text_(rows[i][1]).toUpperCase(),
       buildSessionKeyFromParts_(text_(rows[i][2]), text_(rows[i][5]), text_(rows[i][4]))
-    );
-
-    if (derivedKeys[key]) {
-      result.notesByKey[key] = text_(rows[i][9]);
-      continue;
-    }
-
-    result.manualRows.push(rows[i]);
+    )] = true;
   }
 
-  return result;
+  return keys;
 }
 
 function getExistingEventIds_(sheet) {
@@ -564,9 +580,14 @@ function getSettings_() {
     projectName: getProjectName_(),
     password: getAccessPassword_(),
     duplicateCooldownSeconds: SETTINGS.duplicateCooldownSeconds,
+    standardizedFallbackAttendanceHours: SETTINGS.standardizedFallbackAttendanceHours,
     recentLimit: SETTINGS.recentLimit,
     syncBatchSize: SETTINGS.syncBatchSize,
   };
+}
+
+function settingsFallbackAttendanceHours_() {
+  return toPositiveNumber_(SETTINGS.standardizedFallbackAttendanceHours, 1);
 }
 
 function getProjectName_() {
@@ -725,6 +746,10 @@ function attendanceGroupKey_(dateText, memberId, sessionKey) {
   return [dateText, memberId, sessionKey].join("|");
 }
 
+function finalizedSessionKey_(dateText, sessionKey) {
+  return FINALIZED_SESSION_PREFIX + [dateText, sessionKey].join("|");
+}
+
 function buildSessionKeyFromParts_(projectName, day, sessionTimes) {
   return [text_(projectName).toUpperCase(), text_(day).toUpperCase(), text_(sessionTimes)].join("|");
 }
@@ -789,12 +814,26 @@ function isActive_(value) {
   return text === "" || text === "TRUE" || text === "YES" || text === "Y" || text === "1";
 }
 
+function hasAttendanceContent_(row) {
+  for (var i = 0; i < row.length; i += 1) {
+    if (text_(row[i]) !== "") {
+      return true;
+    }
+  }
+  return false;
+}
+
 function text_(value) {
   return String(value === null || value === undefined ? "" : value).trim();
 }
 
 function pad2_(value) {
   return value < 10 ? "0" + value : String(value);
+}
+
+function toPositiveNumber_(value, fallback) {
+  var parsed = Number(value);
+  return parsed > 0 ? parsed : fallback;
 }
 
 function dayIndex_(dayName) {
@@ -808,6 +847,14 @@ function dayIndex_(dayName) {
 
 function clearConfigCache_() {
   CacheService.getScriptCache().remove(CONFIG_CACHE_KEY);
+}
+
+function isSessionFinalized_(sessionDateKey) {
+  return PropertiesService.getScriptProperties().getProperty(sessionDateKey) === "1";
+}
+
+function setSessionFinalized_(sessionDateKey) {
+  PropertiesService.getScriptProperties().setProperty(sessionDateKey, "1");
 }
 
 function clientTimestamp_(value) {

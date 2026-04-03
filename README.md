@@ -14,7 +14,8 @@ The system uses a sign-in / sign-out event model:
 - the frontend keeps the current roster in browser storage so refreshes do not lose state
 - the frontend syncs events to Google Sheets in the background
 - the backend stores raw events in `Events`
-- the backend rebuilds a derived `Attendance` sheet from those events
+- the backend finalizes attendance from `Events` after a session has ended
+- the backend appends finalized rows into `Attendance` once per session/date
 
 ## Files To Edit
 
@@ -115,6 +116,7 @@ The backend operational settings are near the top of [`Code.gs`](/Users/ronniefe
 ```javascript
 var SETTINGS = {
   duplicateCooldownSeconds: 10,
+  standardizedFallbackAttendanceHours: 1,
   recentLimit: 12,
   syncBatchSize: 10,
 };
@@ -123,6 +125,7 @@ var SETTINGS = {
 What they control:
 
 - `duplicateCooldownSeconds`: short cooldown that prevents an immediate second scan from accidentally signing someone out
+- `standardizedFallbackAttendanceHours`: fallback attendance used for an unfinished final interval at session end
 - `recentLimit`: how many recent events the frontend shows
 - `syncBatchSize`: how many queued events are sent to the backend at once
 
@@ -199,14 +202,14 @@ The `Events` tab is append-only.
 Header:
 
 ```text
-Timestamp | Date | Member ID | Event Type | Method | Project Name | Session Name | Session Times | Day | Event ID | Device ID
+Timestamp | Date | Member ID | Event Type | Method | Project Name | Session Name | Session Times | Day | Event ID | Device ID | Session Key
 ```
 
 You should not normally edit this tab manually.
 
 ### Attendance
 
-The `Attendance` tab is derived from `Events`.
+The `Attendance` tab is finalized from `Events` after a session has ended.
 
 Header:
 
@@ -218,11 +221,12 @@ Notes:
 
 - `Attendance Hours` is calculated as a decimal rounded to 2 decimal places
 - multiple sign-in / sign-out pairs in one session are summed
-- if someone signs in and never signs out, and the session has ended, attendance defaults to `1.00` hour
-- if the operator uses `End Session (Sign Out All)`, every remaining signed-in member is signed out with the same `1.00` hour fallback
+- if someone signs in and never signs out, and the session has ended, the unfinished final interval uses the backend fallback setting
+- if the operator uses `End Session (Sign Out All)`, every remaining signed-in member is signed out with the same fallback setting
 - `Notes` is available for manual comments
+- once attendance rows for a session have been appended, they are not rebuilt or overwritten later
 
-Do not type attendance rows manually. The backend rebuilds this tab.
+You can edit past attendance rows manually after they have been imported. Future sessions append new rows only.
 
 ## How Session Matching Works
 
@@ -248,6 +252,7 @@ The frontend:
 - shows a live `Currently Signed In` roster
 - shows recent sign-in / sign-out activity
 - includes an `End Session (Sign Out All)` button under `Recent Activity`
+- starts the camera automatically after a successful unlock when a session is open
 
 ## Scan Behavior
 
@@ -262,7 +267,10 @@ End-of-session flow:
 
 - if members are still signed in, use `End Session (Sign Out All)`
 - this creates forced sign-out events for everyone still on the roster
-- those forced sign-outs use the same `1.00` hour fallback as members who never signed out before session end
+- those forced sign-outs use the same backend-configured fallback interval as members who never signed out before session end
+- once the configured finish time has passed, the backend finalizes that session from `Events`
+- finalization appends one attendance row per member for that session/date
+- late syncs for an already finalized session are ignored
 
 ## First-Time Test
 
@@ -286,7 +294,7 @@ Then test:
 9. Confirm they are removed from `Currently Signed In`.
 10. Refresh the page and confirm the roster restores correctly.
 11. Confirm the events appear in `Events`.
-12. Confirm the attendance summary appears in `Attendance`.
+12. After the session finish time passes, confirm attendance rows are appended to `Attendance`.
 
 ## Troubleshooting
 
@@ -318,9 +326,17 @@ Check:
 - the frontend is using the correct `apiUrl`
 - the session is currently open
 
-### Attendance is lower than expected for someone who forgot to sign out
+### Attendance is not appearing yet
 
-That is expected if they were left signed in until session end or signed out via `End Session (Sign Out All)`. In those cases the backend applies the `1.00` hour fallback.
+Attendance is only appended after the configured session end time has passed. Before that, only `Events` updates.
+
+### Attendance looks lower than expected for someone who forgot to sign out
+
+That is expected if they were left signed in until session end or signed out via `End Session (Sign Out All)`. In those cases the backend uses `standardizedFallbackAttendanceHours` for the unfinished final interval instead of calculating the full elapsed time.
+
+### I edited old attendance rows and do not want them overwritten
+
+That is the current design. `Attendance` rows are appended once when a session is finalized. Later sessions append new rows only, and previously imported attendance rows are not rebuilt.
 
 ### The roster looks stale
 

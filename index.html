@@ -516,6 +516,7 @@
     const app = {
       settings: {
         duplicateCooldownMs: 10000,
+        standardizedFallbackAttendanceHours: 1,
         recentLimit: 12,
         syncBatchSize: 10
       },
@@ -941,6 +942,7 @@
       applyBootstrap(result) {
         this.settings = {
           duplicateCooldownMs: result.settings && result.settings.duplicateCooldownMs || 10000,
+          standardizedFallbackAttendanceHours: result.settings && result.settings.standardizedFallbackAttendanceHours || 1,
           recentLimit: result.settings && result.settings.recentLimit || 12,
           syncBatchSize: result.settings && result.settings.syncBatchSize || 10
         };
@@ -1153,6 +1155,11 @@
           return;
         }
         this.setSyncNote("All local session changes are synced.", "success");
+      },
+
+      fallbackAttendanceLabel() {
+        const hours = Number(this.settings.standardizedFallbackAttendanceHours) || 1;
+        return `${hours}-hour fallback`;
       },
 
       buildSessionKey(session, sessionDate) {
@@ -1407,7 +1414,7 @@
 
         this.setStatus(
           "Session ended",
-          `${rosterEntries.length} ${rosterEntries.length === 1 ? "member was" : "members were"} signed out with the 1-hour fallback.`,
+          `${rosterEntries.length} ${rosterEntries.length === 1 ? "member was" : "members were"} signed out with the ${this.fallbackAttendanceLabel()}.`,
           "success"
         );
         this.scheduleSync(50);
@@ -1439,10 +1446,19 @@
           }
 
           const syncedIds = new Set(result.syncedEventIds || []);
-          this.eventQueue = this.eventQueue.filter((event) => !syncedIds.has(event.event_id));
+          const rejectedIds = new Set(result.rejectedEventIds || []);
+          this.eventQueue = this.eventQueue.filter((event) => !syncedIds.has(event.event_id) && !rejectedIds.has(event.event_id));
           this.persistSessionState();
           this.finalizeSessionClearIfReady();
           this.renderSyncStatus();
+
+          if (rejectedIds.size) {
+            this.setStatus(
+              "Session finalized",
+              "Some queued events were ignored because that session has already been finalized.",
+              "error"
+            );
+          }
 
           if (this.eventQueue.length) {
             this.scheduleSync(100);
