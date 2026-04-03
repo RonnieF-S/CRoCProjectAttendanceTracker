@@ -1,12 +1,10 @@
 # CRoC Project Attendance Tracker
 
-This attendance tracker is designed for one Curtin Robotics Club project at a time.
-
-Each project gets:
+This tracker is designed so each project lead can set up attendance for their own project with:
 
 - one Google Sheet
 - one Google Apps Script web app bound to that sheet
-- one deployed frontend page using [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
+- one deployed copy of [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
 
 The system uses a sign-in / sign-out event model:
 
@@ -17,13 +15,31 @@ The system uses a sign-in / sign-out event model:
 - the backend finalizes attendance from `Events` after a session has ended
 - the backend appends finalized rows into `Attendance` once per session/date
 
+## Quick Start
+
+If you are setting this up for a new project, do these 8 things:
+
+1. Create a Google Sheet for your project.
+2. Open Apps Script from that sheet and paste in [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs).
+3. Run `setupSpreadsheet()`.
+4. Fill in the `Config` tab with your project name, password, and session times.
+5. Deploy the Apps Script as a web app.
+6. Open [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html) and replace `YOUR_APPS_SCRIPT_WEB_APP_URL` with your own deployed Apps Script URL.
+7. Push the frontend to GitHub Pages or host it somewhere similar.
+8. Open the page, enter the password from your `Config` tab, and test one sign-in.
+
+If you only remember one thing:
+
+- every project needs its own Google Sheet backend
+- every deployed frontend must point at that project’s own Apps Script `apiUrl`
+
 ## Files To Edit
 
 - [`Code.gs`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/Code.gs)
   - paste this into Apps Script
   - optionally edit backend `SETTINGS`
 - [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
-  - set the Apps Script `apiUrl`
+  - set the Apps Script `apiUrl` to your own deployed backend
   - deploy this through GitHub Pages
 
 ## Supported IDs
@@ -51,6 +67,8 @@ To set up a new project:
 5. Deploy the Apps Script as a web app.
 6. Put that web app URL into [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html).
 7. Push the frontend to GitHub Pages.
+
+You can follow the detailed steps below if this is your first time doing it.
 
 ## 1. Create The Google Sheet
 
@@ -176,6 +194,12 @@ const CONFIG = {
 
 Replace `apiUrl` with your deployed Apps Script web app URL.
 
+Important:
+
+- do not leave the placeholder value in place
+- do not point two different projects at the same backend sheet unless you intentionally want them sharing attendance data
+- if you copy this repo for a new project, changing `apiUrl` is the first frontend change you should make
+
 The frontend does not store the password. Users enter it on the page, and the backend verifies it against the `Config` tab.
 
 ## 8. Deploy The Frontend
@@ -190,6 +214,15 @@ If GitHub Pages is already configured:
 2. Commit the change
 3. Push to GitHub
 4. Wait for GitHub Pages to redeploy
+
+## What Project Leads Usually Need To Change
+
+For most projects, you only need to change two things:
+
+1. The `Config` tab in the project’s Google Sheet
+2. The `apiUrl` in [`index.html`](/Users/ronniefellows-smith/dev/croc/project_attendance_tracker/index.html)
+
+You usually do not need to change anything else.
 
 ## Sheet Structure
 
