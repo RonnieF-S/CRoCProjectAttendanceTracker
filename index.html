@@ -478,6 +478,10 @@
       syncRetryMs: 4000,
       pollIntervalMs: 15000,
       localRetentionDays: 7,
+      inputRefocusDelayMs: 150,
+      laserScannerMaxInterKeyMs: 45,
+      laserScannerSubmitDelayMs: 60,
+      laserScannerMinimumLength: 8,
       scannerLibraryUrls: [
         "https://unpkg.com/html5-qrcode",
         "https://cdn.jsdelivr.net/npm/html5-qrcode"
@@ -538,6 +542,10 @@
       lastMemberAction: {},
       keyboardBuffer: "",
       keyboardTimer: null,
+      inputBurstIsScanner: false,
+      inputBurstLength: 0,
+      inputBurstLastKeyTime: 0,
+      inputBurstTimer: null,
       syncInFlight: false,
       syncTimer: null,
       pollTimer: null,
@@ -545,6 +553,7 @@
       deviceId: "",
       cameraDevices: [],
       currentCameraIndex: 0,
+      focusReturnTimer: null,
       scannerStartToken: 0,
       successFlashTimer: null,
       successResetTimer: null,
@@ -619,6 +628,8 @@
         el.flipBtn.disabled = !unlocked;
         el.endSessionBtn.disabled = !unlocked;
         if (!unlocked) {
+          this.clearFocusReturnTimer();
+          this.resetInputBurstDetection();
           this.stopScanner();
           this.stopPolling();
           el.accessCard.classList.remove("hidden");
@@ -1641,7 +1652,51 @@
       },
 
       focusInput() {
-        el.studentInput.focus();
+        if (!this.unlocked || el.studentInput.disabled) {
+          return;
+        }
+        el.studentInput.focus({ preventScroll: true });
+      },
+
+      clearFocusReturnTimer() {
+        if (this.focusReturnTimer) {
+          clearTimeout(this.focusReturnTimer);
+          this.focusReturnTimer = null;
+        }
+      },
+
+      shouldRefocusStudentInput() {
+        if (!this.unlocked || el.studentInput.disabled) {
+          return false;
+        }
+
+        const activeElement = document.activeElement;
+        if (!activeElement || activeElement === el.studentInput) {
+          return false;
+        }
+
+        const tagName = activeElement.tagName ? activeElement.tagName.toLowerCase() : "";
+        if (activeElement === el.passwordInput || tagName === "textarea" || tagName === "select") {
+          return false;
+        }
+        if (tagName === "input" && activeElement !== el.studentInput) {
+          return false;
+        }
+        if (activeElement.isContentEditable) {
+          return false;
+        }
+
+        return true;
+      },
+
+      scheduleInputRefocus() {
+        this.clearFocusReturnTimer();
+        this.focusReturnTimer = window.setTimeout(() => {
+          this.focusReturnTimer = null;
+          if (this.shouldRefocusStudentInput()) {
+            this.focusInput();
+          }
+        }, CONFIG.inputRefocusDelayMs);
       },
 
       handleKeyboardScanner(event) {
@@ -1683,6 +1738,73 @@
         }
       },
 
+      resetInputBurstDetection() {
+        this.inputBurstIsScanner = false;
+        this.inputBurstLength = 0;
+        this.inputBurstLastKeyTime = 0;
+        if (this.inputBurstTimer) {
+          clearTimeout(this.inputBurstTimer);
+          this.inputBurstTimer = null;
+        }
+      },
+
+      handleStudentInputKeydown(event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this.resetInputBurstDetection();
+          this.submitManual();
+          return;
+        }
+
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+          this.resetInputBurstDetection();
+          return;
+        }
+
+        if (event.key.length !== 1) {
+          if (event.key === "Backspace" || event.key === "Delete") {
+            this.resetInputBurstDetection();
+          }
+          return;
+        }
+
+        const now = Date.now();
+        if (!this.inputBurstLength) {
+          this.inputBurstIsScanner = true;
+          this.inputBurstLength = 1;
+        } else {
+          if (now - this.inputBurstLastKeyTime > CONFIG.laserScannerMaxInterKeyMs) {
+            this.inputBurstIsScanner = false;
+          }
+          this.inputBurstLength += 1;
+        }
+        this.inputBurstLastKeyTime = now;
+
+        if (this.inputBurstTimer) {
+          clearTimeout(this.inputBurstTimer);
+        }
+        this.inputBurstTimer = window.setTimeout(() => this.maybeAutoSubmitStudentInput(), CONFIG.laserScannerSubmitDelayMs);
+      },
+
+      async maybeAutoSubmitStudentInput() {
+        this.inputBurstTimer = null;
+        const value = el.studentInput.value.trim();
+        const shouldAutoSubmit = this.inputBurstIsScanner &&
+          this.inputBurstLength >= CONFIG.laserScannerMinimumLength &&
+          value.length >= CONFIG.laserScannerMinimumLength;
+
+        this.resetInputBurstDetection();
+        if (!shouldAutoSubmit || !value) {
+          return;
+        }
+
+        const processed = await this.processScan(value, "barcode");
+        if (processed) {
+          el.studentInput.value = "";
+          this.focusInput();
+        }
+      },
+
       submitManual() {
         if (!this.unlocked) {
           this.setStatus("Password required", "Enter the attendance password first.", "error");
@@ -1697,6 +1819,7 @@
 
         this.processScan(value, "manual");
         el.studentInput.value = "";
+        this.resetInputBurstDetection();
         this.focusInput();
       },
 
@@ -1751,11 +1874,9 @@
         el.manualBtn.addEventListener("click", () => this.submitManual());
         el.endSessionBtn.addEventListener("click", () => this.endSessionSignOutAll());
         el.unlockBtn.addEventListener("click", () => this.unlock());
-        el.studentInput.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") {
-            this.submitManual();
-          }
-        });
+        el.studentInput.addEventListener("keydown", (event) => this.handleStudentInputKeydown(event));
+        el.studentInput.addEventListener("focus", () => this.clearFocusReturnTimer());
+        el.studentInput.addEventListener("blur", () => this.scheduleInputRefocus());
         el.passwordInput.addEventListener("keydown", (event) => {
           if (event.key === "Enter") {
             this.unlock();
