@@ -1086,7 +1086,7 @@
       renderRoster() {
         el.rosterList.innerHTML = "";
         const rosterEntries = Object.values(this.roster).sort((a, b) => {
-          return (this.parseTimestampMs(a.signedInAt) || 0) - (this.parseTimestampMs(b.signedInAt) || 0);
+          return (this.parseTimestampMs(b.signedInAt) || 0) - (this.parseTimestampMs(a.signedInAt) || 0);
         });
         el.rosterCount.textContent = `${rosterEntries.length} ${rosterEntries.length === 1 ? "member" : "members"}`;
 
