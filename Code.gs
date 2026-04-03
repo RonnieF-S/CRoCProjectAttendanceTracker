@@ -66,13 +66,36 @@ function doGet(e) {
   try {
     return respond_(callback, handleAction_(action, e));
   } catch (error) {
-    return respond_(callback, {
-      success: false,
-      message: error.message || "Unknown error.",
-      projectName: getProjectName_(),
-      sessionStatus: getSessionStatus_(),
-    });
+    return respond_(callback, safeErrorResponse_(error));
   }
+}
+
+function safeErrorResponse_(error) {
+  var projectName = "Project";
+  var sessionStatus = {
+    isOpen: false,
+    currentSession: null,
+    nextSession: null,
+  };
+
+  try {
+    projectName = getProjectName_();
+  } catch (_error) {
+    // Keep the fallback project name when config lookup also fails.
+  }
+
+  try {
+    sessionStatus = getSessionStatus_();
+  } catch (_error) {
+    // Keep the fallback closed session status when session lookup also fails.
+  }
+
+  return {
+    success: false,
+    message: error && error.message ? error.message : "Unknown error.",
+    projectName: projectName,
+    sessionStatus: sessionStatus,
+  };
 }
 
 function handleAction_(action, e) {
