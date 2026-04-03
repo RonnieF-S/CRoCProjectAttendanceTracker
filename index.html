@@ -1,0 +1,1908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Attendance</title>
+  <style>
+    :root {
+      --bg: #f3f5f8;
+      --panel: #ffffff;
+      --border: #d7dee8;
+      --text: #17212b;
+      --muted: #5c6b7a;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --success-bg: #dcfce7;
+      --success-border: #22c55e;
+      --success-text: #166534;
+      --signout-bg: #f3e8ff;
+      --signout-border: #8b5cf6;
+      --signout-text: #6d28d9;
+      --error-bg: #fee2e2;
+      --error-border: #ef4444;
+      --error-text: #991b1b;
+      --info-bg: #eef6ff;
+      --info-border: #60a5fa;
+      --info-text: #1d4ed8;
+      --shadow: 0 16px 32px rgba(23, 33, 43, 0.08);
+      --focus-ring: rgba(15, 118, 110, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 18px 24px 20px;
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 26%),
+        var(--bg);
+      color: var(--text);
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    p {
+      color: var(--muted);
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin: 14px 0;
+      box-shadow: var(--shadow);
+    }
+
+    .page-layout,
+    .status-layout,
+    .scanner-layout,
+    .sidebar-layout {
+      display: grid;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .page-layout {
+      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr);
+    }
+
+    .status-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+    }
+
+    .scanner-layout {
+      grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr);
+    }
+
+    .sidebar-layout {
+      gap: 14px;
+    }
+
+    .reader-shell {
+      position: relative;
+      width: 100%;
+      height: 240px;
+      background: black;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    #reader {
+      width: 100%;
+      height: 100%;
+      background: black;
+    }
+
+    #reader video,
+    #reader canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #reader video {
+      z-index: 0;
+    }
+
+    #reader canvas {
+      z-index: 1;
+    }
+
+    .scan-window {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: min(84%, 420px);
+      height: min(42%, 180px);
+      transform: translate(-50%, -50%);
+      border-radius: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.92);
+      box-shadow:
+        0 0 0 9999px rgba(0, 0, 0, 0.28),
+        0 0 0 2px rgba(255, 255, 255, 0.14) inset;
+      z-index: 3;
+      pointer-events: none;
+      transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+    }
+
+    .scan-window.hidden {
+      display: none;
+    }
+
+    .scan-window.flash-success {
+      border-color: rgba(34, 197, 94, 0.98);
+      background: rgba(34, 197, 94, 0.16);
+      box-shadow:
+        0 0 0 9999px rgba(16, 185, 129, 0.12),
+        0 0 0 2px rgba(34, 197, 94, 0.35) inset,
+        0 0 0 4px rgba(34, 197, 94, 0.2);
+    }
+
+    input, button {
+      font-size: 16px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    input {
+      width: 100%;
+    }
+
+    button {
+      cursor: pointer;
+      border: 0;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+    }
+
+    button:hover {
+      background: var(--accent-strong);
+    }
+
+    .danger-button {
+      background: #b91c1c;
+    }
+
+    .danger-button:hover {
+      background: #991b1b;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    button.secondary {
+      background: #e7eef5;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button.secondary:hover {
+      background: #dde7f1;
+    }
+
+    .manual-panel {
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .manual-panel h2,
+    .scan-panel h2,
+    .session-panel h2,
+    .status-panel h2,
+    .roster-panel h2,
+    .history-panel h2 {
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+
+    .status-banner,
+    .session-banner {
+      border-radius: 16px;
+      border: 2px solid var(--border);
+      padding: 12px 14px;
+      display: grid;
+      gap: 4px;
+      background: #f8fafc;
+    }
+
+    .status-banner {
+      min-height: 76px;
+      align-content: center;
+    }
+
+    .status-banner.success,
+    .session-banner.open {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+    }
+
+    .status-banner.signout {
+      background: var(--signout-bg);
+      border-color: var(--signout-border);
+      color: var(--signout-text);
+    }
+
+    .status-banner.error {
+      background: var(--error-bg);
+      border-color: var(--error-border);
+      color: var(--error-text);
+    }
+
+    .session-banner.closed {
+      background: var(--info-bg);
+      border-color: var(--info-border);
+      color: var(--info-text);
+    }
+
+    .status-label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-message {
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 800;
+      color: inherit;
+    }
+
+    .status-detail {
+      font-size: 13px;
+      color: inherit;
+      opacity: 0.9;
+    }
+
+    .history-list,
+    .roster-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .history-item,
+    .roster-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+    }
+
+    .history-name,
+    .roster-name {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .history-meta,
+    .roster-meta,
+    .muted,
+    .sync-note {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .sync-note.error {
+      color: var(--error-text);
+    }
+
+    .sync-note.success {
+      color: var(--success-text);
+    }
+
+    .empty-state {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+
+    .auth-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .auth-row input {
+      flex: 1 1 240px;
+    }
+
+    .auth-message {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .auth-message.success {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+    }
+
+    .auth-message.error {
+      background: var(--error-bg);
+      border-color: var(--error-border);
+      color: var(--error-text);
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .sidebar-panel {
+      min-height: 320px;
+    }
+
+    @media (max-width: 980px) {
+      body {
+        padding: 16px;
+      }
+
+      .page-layout,
+      .status-layout,
+      .scanner-layout,
+      .sidebar-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .status-message {
+        font-size: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1 id="pageTitle">Project Attendance</h1>
+
+  <div id="accessCard" class="card">
+    <h2>Access</h2>
+    <div class="auth-row">
+      <input id="passwordInput" type="password" placeholder="Enter access password">
+      <button id="unlockBtn" type="button">Unlock</button>
+    </div>
+    <div id="authMessage" class="auth-message">Enter the attendance password before scanning or signing members in or out.</div>
+  </div>
+
+  <div class="page-layout">
+    <div>
+      <div class="status-layout">
+        <div class="card status-panel">
+          <h2>Sign-In Status</h2>
+          <div id="statusBanner" class="status-banner">
+            <div class="status-label">Scanner status</div>
+            <div id="statusMessage" class="status-message">Ready.</div>
+            <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+          </div>
+        </div>
+
+        <div class="card session-panel">
+          <h2>Current Session</h2>
+          <div id="sessionBanner" class="session-banner">
+            <div class="status-label">Session status</div>
+            <div id="sessionMessage" class="status-message">Locked</div>
+            <div id="sessionDetail" class="status-detail">Enter the attendance password to load session details.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scanner-layout">
+        <div class="card scan-panel">
+          <h2>Student Card Barcode Scanner</h2>
+          <div class="reader-shell">
+            <div id="reader"></div>
+            <div id="scanWindow" class="scan-window"></div>
+          </div>
+          <div class="button-row">
+            <button id="startBtn">Start Camera</button>
+            <button id="flipBtn" class="secondary">Flip Camera</button>
+            <button id="stopBtn" class="secondary">Stop Camera</button>
+          </div>
+          <div class="muted">Best used in Chrome on a phone or laptop.</div>
+        </div>
+
+        <div class="card manual-panel">
+          <div>
+            <h2>Manual Entry</h2>
+            <p class="muted">Use this if the barcode cannot be read.</p>
+          </div>
+          <input id="studentNumber" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Enter student ID">
+          <button id="manualBtn">Process Scan</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-layout">
+      <div class="card roster-panel sidebar-panel">
+        <div class="panel-header">
+          <h2>Currently Signed In</h2>
+          <div id="rosterCount" class="muted">0 members</div>
+        </div>
+        <div id="syncNote" class="sync-note">Session state will appear here after unlock.</div>
+        <ul id="rosterList" class="roster-list">
+          <li id="rosterEmpty" class="empty-state">No members are currently signed in.</li>
+        </ul>
+      </div>
+
+      <div class="card history-panel sidebar-panel">
+        <h2>Recent Activity</h2>
+        <ul id="recentList" class="history-list">
+          <li id="recentEmpty" class="empty-state">No recent activity yet.</li>
+        </ul>
+        <button id="endSessionBtn" type="button" class="danger-button">End Session (Sign Out All)</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Update `apiUrl` to the Apps Script web app URL for your own project sheet backend.
+    const CONFIG = {
+      apiUrl: "https://script.google.com/macros/s/AKfycbxbtjGnYnX-rOlHUqzeRgab_kr1f78N9hr90eD6a0TqUcCXSB0W6IZDy8vsBg1WOO4g/exec",
+      storagePrefix: "croc-attendance-v3",
+      syncRetryMs: 4000,
+      pollIntervalMs: 15000,
+      localRetentionDays: 7,
+      inputRefocusDelayMs: 150,
+      laserScannerMaxInterKeyMs: 45,
+      laserScannerSubmitDelayMs: 60,
+      laserScannerMinimumLength: 8,
+      scannerLibraryUrls: [
+        "https://unpkg.com/html5-qrcode",
+        "https://cdn.jsdelivr.net/npm/html5-qrcode"
+      ]
+    };
+    const FORCED_SIGN_OUT_METHOD = "session_end";
+
+    const el = {
+      pageTitle: document.getElementById("pageTitle"),
+      accessCard: document.getElementById("accessCard"),
+      passwordInput: document.getElementById("passwordInput"),
+      unlockBtn: document.getElementById("unlockBtn"),
+      authMessage: document.getElementById("authMessage"),
+      reader: document.getElementById("reader"),
+      scanWindow: document.getElementById("scanWindow"),
+      statusBanner: document.getElementById("statusBanner"),
+      statusMessage: document.getElementById("statusMessage"),
+      statusDetail: document.getElementById("statusDetail"),
+      sessionBanner: document.getElementById("sessionBanner"),
+      sessionMessage: document.getElementById("sessionMessage"),
+      sessionDetail: document.getElementById("sessionDetail"),
+      studentInput: document.getElementById("studentNumber"),
+      startBtn: document.getElementById("startBtn"),
+      flipBtn: document.getElementById("flipBtn"),
+      stopBtn: document.getElementById("stopBtn"),
+      manualBtn: document.getElementById("manualBtn"),
+      endSessionBtn: document.getElementById("endSessionBtn"),
+      rosterCount: document.getElementById("rosterCount"),
+      syncNote: document.getElementById("syncNote"),
+      rosterList: document.getElementById("rosterList"),
+      rosterEmpty: document.getElementById("rosterEmpty"),
+      recentList: document.getElementById("recentList"),
+      recentEmpty: document.getElementById("recentEmpty")
+    };
+
+    const app = {
+      settings: {
+        duplicateCooldownMs: 10000,
+        standardizedFallbackAttendanceHours: 1,
+        recentLimit: 12,
+        syncBatchSize: 10
+      },
+      html5QrCode: null,
+      scanning: false,
+      unlocked: false,
+      password: "",
+      projectName: "Project",
+      sessionDate: "",
+      currentSession: null,
+      currentSessionOpen: false,
+      nextSession: null,
+      sessionKey: "",
+      roster: {},
+      recentActivity: [],
+      eventQueue: [],
+      lastScannedValue: "",
+      lastScannedTime: 0,
+      lastMemberAction: {},
+      keyboardBuffer: "",
+      keyboardTimer: null,
+      inputBurstIsScanner: false,
+      inputBurstLength: 0,
+      inputBurstLastKeyTime: 0,
+      inputBurstTimer: null,
+      syncInFlight: false,
+      syncTimer: null,
+      pollTimer: null,
+      pollInFlight: false,
+      deviceId: "",
+      cameraDevices: [],
+      currentCameraIndex: 0,
+      focusReturnTimer: null,
+      scannerStartToken: 0,
+      successFlashTimer: null,
+      successResetTimer: null,
+      audioContext: null,
+      scannerLibraryPromise: null,
+      pendingSessionClear: false,
+
+      async ensureScannerLibrary() {
+        if (window.Html5Qrcode) {
+          return;
+        }
+        if (this.scannerLibraryPromise) {
+          return this.scannerLibraryPromise;
+        }
+
+        this.scannerLibraryPromise = (async () => {
+          for (let index = 0; index < CONFIG.scannerLibraryUrls.length; index += 1) {
+            try {
+              await this.loadScript(CONFIG.scannerLibraryUrls[index]);
+              if (window.Html5Qrcode) {
+                return;
+              }
+            } catch (_error) {
+              // Try the next CDN mirror.
+            }
+          }
+          throw new Error("Barcode scanner library could not be loaded.");
+        })();
+
+        try {
+          await this.scannerLibraryPromise;
+        } catch (error) {
+          this.scannerLibraryPromise = null;
+          throw error;
+        }
+      },
+
+      loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const existing = document.querySelector(`script[data-src="${src}"]`);
+          if (existing) {
+            if (window.Html5Qrcode) {
+              resolve();
+              return;
+            }
+            existing.addEventListener("load", resolve, { once: true });
+            existing.addEventListener("error", reject, { once: true });
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+          script.dataset.src = src;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error(`Failed to load ${src}`));
+          document.head.appendChild(script);
+        });
+      },
+
+      setProjectName(projectName) {
+        this.projectName = projectName || "Project";
+        document.title = `${this.projectName} Attendance`;
+        el.pageTitle.textContent = `${this.projectName} Attendance`;
+      },
+
+      setUnlocked(unlocked) {
+        this.unlocked = unlocked;
+        el.studentInput.disabled = !unlocked;
+        el.manualBtn.disabled = !unlocked;
+        el.startBtn.disabled = !unlocked;
+        el.flipBtn.disabled = !unlocked;
+        el.endSessionBtn.disabled = !unlocked;
+        if (!unlocked) {
+          this.clearFocusReturnTimer();
+          this.resetInputBurstDetection();
+          this.stopScanner();
+          this.stopPolling();
+          el.accessCard.classList.remove("hidden");
+        }
+      },
+
+      setAuthMessage(message, type = "") {
+        el.authMessage.className = `auth-message ${type}`.trim();
+        el.authMessage.textContent = message;
+      },
+
+      setStatus(message, detail = "", type = "") {
+        el.statusBanner.className = `status-banner ${type}`.trim();
+        el.statusMessage.textContent = message;
+        el.statusDetail.textContent = detail;
+      },
+
+      setSessionInfo(message, detail = "", type = "") {
+        el.sessionBanner.className = `session-banner ${type}`.trim();
+        el.sessionMessage.textContent = message;
+        el.sessionDetail.textContent = detail;
+      },
+
+      setSyncNote(message, type = "") {
+        el.syncNote.className = `sync-note ${type}`.trim();
+        el.syncNote.textContent = message;
+      },
+
+      scoreCameraLabel(label) {
+        const text = String(label || "").toLowerCase();
+        if (!text) {
+          return 0;
+        }
+        if (/(back|rear|environment|world)/.test(text)) {
+          return 30;
+        }
+        if (/(front|user|facetime)/.test(text)) {
+          return 10;
+        }
+        if (/(virtual|obs|snap|epoccam|droidcam)/.test(text)) {
+          return -10;
+        }
+        if (/(hd|1080|4k|ultra)/.test(text)) {
+          return 5;
+        }
+        return 1;
+      },
+
+      async refreshCameraDevices() {
+        if (!window.Html5Qrcode || !window.Html5Qrcode.getCameras) {
+          this.cameraDevices = [];
+          this.currentCameraIndex = 0;
+          this.updateFlipButton();
+          return;
+        }
+
+        try {
+          this.cameraDevices = (await Html5Qrcode.getCameras()).sort((a, b) => {
+            return this.scoreCameraLabel(b.label) - this.scoreCameraLabel(a.label);
+          });
+        } catch (_error) {
+          this.cameraDevices = [];
+        }
+
+        if (this.currentCameraIndex >= this.getCameraOptions().length) {
+          this.currentCameraIndex = 0;
+        }
+        this.updateFlipButton();
+      },
+
+      getCameraOptions() {
+        if (this.cameraDevices.length) {
+          return this.cameraDevices.map((device) => ({ deviceId: { exact: device.id } }));
+        }
+
+        if (this.isMobileDevice()) {
+          return [
+            { facingMode: { exact: "environment" } },
+            { facingMode: "environment" },
+            { facingMode: "user" }
+          ];
+        }
+
+        return [
+          { facingMode: "environment" },
+          { facingMode: "user" }
+        ];
+      },
+
+      getPreferredFormats() {
+        const formats = window.Html5QrcodeSupportedFormats;
+        if (!formats) {
+          return [];
+        }
+
+        return [
+          formats.CODE_128,
+          formats.CODE_39,
+          formats.CODABAR,
+          formats.EAN_13,
+          formats.EAN_8
+        ].filter(Boolean);
+      },
+
+      buildQrbox() {
+        const readerWidth = el.reader.clientWidth || window.innerWidth || 480;
+        const width = Math.max(240, Math.min(Math.round(readerWidth * 0.82), 460));
+        const height = Math.max(110, Math.min(Math.round(width * 0.42), 190));
+        return { width, height };
+      },
+
+      scannerProfiles() {
+        const qrbox = this.buildQrbox();
+        const formatsToSupport = this.getPreferredFormats();
+        return [
+          {
+            fps: 12,
+            aspectRatio: 1.7777778,
+            qrbox: qrbox,
+            formatsToSupport: formatsToSupport,
+            videoConstraints: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 24, max: 30 }
+            }
+          },
+          {
+            fps: 10,
+            aspectRatio: 1.7777778,
+            qrbox: qrbox,
+            formatsToSupport: formatsToSupport,
+            videoConstraints: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 20, max: 24 }
+            }
+          },
+          {
+            fps: 8,
+            qrbox: qrbox,
+            formatsToSupport: formatsToSupport
+          }
+        ];
+      },
+
+      updateFlipButton() {
+        const options = this.getCameraOptions();
+        el.flipBtn.disabled = !this.unlocked || (this.cameraDevices.length > 0 && options.length <= 1);
+      },
+
+      ensureAudioContext() {
+        if (!window.AudioContext && !window.webkitAudioContext) {
+          return null;
+        }
+        if (!this.audioContext) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          this.audioContext = new AudioContextClass();
+        }
+        if (this.audioContext.state === "suspended") {
+          this.audioContext.resume().catch(() => {});
+        }
+        return this.audioContext;
+      },
+
+      playSuccessTone() {
+        const context = this.ensureAudioContext();
+        if (!context) {
+          return;
+        }
+
+        const oscillator = context.createOscillator();
+        const gainNode = context.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(1046.5, context.currentTime);
+        gainNode.gain.setValueAtTime(0.0001, context.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.16, context.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.18);
+        oscillator.connect(gainNode);
+        gainNode.connect(context.destination);
+        oscillator.start(context.currentTime);
+        oscillator.stop(context.currentTime + 0.2);
+      },
+
+      flashScannerSuccess() {
+        el.scanWindow.classList.remove("flash-success");
+        void el.scanWindow.offsetWidth;
+        el.scanWindow.classList.add("flash-success");
+
+        if (this.successFlashTimer) {
+          clearTimeout(this.successFlashTimer);
+        }
+        if (this.successResetTimer) {
+          clearTimeout(this.successResetTimer);
+        }
+
+        this.successFlashTimer = window.setTimeout(() => {
+          el.scanWindow.classList.remove("flash-success");
+        }, 220);
+
+        this.successResetTimer = window.setTimeout(() => {
+          el.scanWindow.classList.remove("flash-success");
+        }, 450);
+      },
+
+      hasSignedInMembers() {
+        return Object.keys(this.roster).length > 0;
+      },
+
+      request(params, requirePassword = true) {
+        return new Promise((resolve, reject) => {
+          if (requirePassword && !this.password) {
+            reject(new Error("Enter the attendance password before signing people in."));
+            return;
+          }
+
+          const callbackName = `jsonp_cb_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+          const script = document.createElement("script");
+          const query = new URLSearchParams({ ...params, password: this.password, callback: callbackName }).toString();
+
+          window[callbackName] = function(response) {
+            cleanup();
+            resolve(response);
+          };
+
+          script.onerror = function() {
+            cleanup();
+            reject(new Error("Request failed."));
+          };
+
+          function cleanup() {
+            delete window[callbackName];
+            if (script.parentNode) {
+              script.parentNode.removeChild(script);
+            }
+          }
+
+          script.src = `${CONFIG.apiUrl}?${query}`;
+          document.body.appendChild(script);
+        });
+      },
+
+      normalize(rawValue) {
+        const cleaned = String(rawValue || "").trim().toUpperCase().replace(/\s+/g, "");
+        if (/^\d{8}$/.test(cleaned)) {
+          return { identifier: cleaned, memberType: "Student" };
+        }
+        if (/^\d{6}[A-Z]$/.test(cleaned)) {
+          return { identifier: cleaned, memberType: "Staff" };
+        }
+
+        const suffix = cleaned.slice(3);
+        if (/^\d{8}$/.test(suffix)) {
+          return { identifier: suffix, memberType: "Student" };
+        }
+        if (/^\d{6}[A-Z]$/.test(suffix)) {
+          return { identifier: suffix, memberType: "Staff" };
+        }
+
+        throw new Error("Use a student ID like xxx12345678 or a staff ID like xxx123456A.");
+      },
+
+      memberTypeFor(identifier) {
+        return /^\d{6}[A-Z]$/.test(identifier) ? "Staff" : "Student";
+      },
+
+      eventTypeLabel(eventType) {
+        return eventType === "sign_in" ? "Signed in" : "Signed out";
+      },
+
+      formatTimestamp(value) {
+        const parsed = this.parseTimestampMs(value);
+        if (parsed === null) {
+          return "Unknown time";
+        }
+        return new Date(parsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      },
+
+      parseTimestampMs(value) {
+        if (!value) {
+          return null;
+        }
+        if (value instanceof Date && !isNaN(value.getTime())) {
+          return value.getTime();
+        }
+
+        const text = String(value).trim();
+        const direct = new Date(text).getTime();
+        if (!Number.isNaN(direct)) {
+          return direct;
+        }
+
+        const normalized = new Date(text.replace(" ", "T")).getTime();
+        return Number.isNaN(normalized) ? null : normalized;
+      },
+
+      sessionSummary(session) {
+        return session
+          ? [session.sessionName, session.sessionTimes, session.day].filter(Boolean).join(" • ")
+          : "";
+      },
+
+      setSessionStatus(sessionStatus) {
+        this.currentSessionOpen = !!(sessionStatus && sessionStatus.isOpen);
+        this.currentSession = sessionStatus && sessionStatus.currentSession ? sessionStatus.currentSession : null;
+        this.nextSession = sessionStatus && sessionStatus.nextSession ? sessionStatus.nextSession : null;
+        this.sessionKey = this.currentSession ? this.buildSessionKey(this.currentSession, this.sessionDate) : "";
+
+        if (this.currentSession) {
+          this.setSessionInfo("Open now", this.sessionSummary(this.currentSession), "open");
+          return;
+        }
+
+        if (this.nextSession) {
+          this.setSessionInfo("No session open", `Next session: ${this.sessionSummary(this.nextSession)}`, "closed");
+          return;
+        }
+
+        this.setSessionInfo("No session configured", "Add an active session in the Config tab.", "closed");
+      },
+
+      applyBootstrap(result) {
+        this.settings = {
+          duplicateCooldownMs: result.settings && result.settings.duplicateCooldownMs || 10000,
+          standardizedFallbackAttendanceHours: result.settings && result.settings.standardizedFallbackAttendanceHours || 1,
+          recentLimit: result.settings && result.settings.recentLimit || 12,
+          syncBatchSize: result.settings && result.settings.syncBatchSize || 10
+        };
+        this.sessionDate = result.sessionDate || this.todayDateText();
+        this.setProjectName(result.projectName);
+        this.setSessionStatus(result.sessionStatus);
+        this.persistLastKnownSessionInfo();
+
+        if (!this.currentSession) {
+          this.roster = {};
+          this.eventQueue = [];
+          this.recentActivity = [];
+          this.lastMemberAction = {};
+          this.pendingSessionClear = false;
+          this.renderRoster();
+          this.renderRecentActivity();
+          this.setSyncNote("No active session to sync.", "");
+          this.setStatus(
+            this.nextSession ? "No session open" : "Backend configuration error",
+            this.nextSession ? `Next session: ${this.sessionSummary(this.nextSession)}` : "No active or upcoming sessions are configured.",
+            this.nextSession ? "" : "error"
+          );
+          return;
+        }
+
+        const persisted = this.loadSessionState(this.sessionKey);
+        const backendEvents = Array.isArray(result.events) ? result.events.map((event) => ({ ...event, synced: true })) : [];
+        const unsyncedEvents = persisted && Array.isArray(persisted.eventQueue) ? persisted.eventQueue : [];
+        const rebuilt = this.rebuildStateFromEvents(this.mergeEvents(backendEvents, unsyncedEvents));
+
+        this.roster = rebuilt.roster;
+        this.recentActivity = rebuilt.recentActivity;
+        this.eventQueue = rebuilt.eventQueue;
+        this.lastMemberAction = rebuilt.lastMemberAction;
+        this.pendingSessionClear = !!(persisted && persisted.pendingSessionClear);
+        this.persistSessionState();
+        this.finalizeSessionClearIfReady();
+        this.renderRoster();
+        this.renderRecentActivity();
+        this.renderSyncStatus();
+        this.setStatus("Ready", this.sessionSummary(this.currentSession));
+      },
+
+      async pollBackendState() {
+        if (!this.unlocked || this.pollInFlight) {
+          return;
+        }
+
+        this.pollInFlight = true;
+        try {
+          const result = await this.request({ action: "bootstrap" });
+          if (result.success) {
+            this.applyBootstrap(result);
+          }
+        } catch (_error) {
+          // Keep the local roster visible; polling is best-effort.
+        } finally {
+          this.pollInFlight = false;
+        }
+      },
+
+      startPolling() {
+        this.stopPolling();
+        this.pollTimer = window.setInterval(() => this.pollBackendState(), CONFIG.pollIntervalMs);
+      },
+
+      stopPolling() {
+        if (this.pollTimer) {
+          clearInterval(this.pollTimer);
+          this.pollTimer = null;
+        }
+      },
+
+      mergeEvents(backendEvents, unsyncedEvents) {
+        const byId = {};
+
+        backendEvents.forEach((event) => {
+          byId[event.event_id] = { ...event, synced: true };
+        });
+
+        unsyncedEvents.forEach((event) => {
+          if (!byId[event.event_id]) {
+            byId[event.event_id] = { ...event, synced: false };
+          }
+        });
+
+        return Object.values(byId).sort((a, b) => {
+          return (this.parseTimestampMs(a.timestamp) || 0) - (this.parseTimestampMs(b.timestamp) || 0);
+        });
+      },
+
+      rebuildStateFromEvents(events) {
+        const roster = {};
+        const recent = [];
+        const unsynced = [];
+        const lastMemberAction = {};
+
+        events.forEach((event) => {
+          const memberType = event.member_type || this.memberTypeFor(event.member_id);
+          const timestampMs = this.parseTimestampMs(event.timestamp);
+          if (event.event_type === "sign_in") {
+            roster[event.member_id] = {
+              memberId: event.member_id,
+              memberType: memberType,
+              signedInAt: event.timestamp,
+              method: event.method
+            };
+          } else if (event.event_type === "sign_out") {
+            delete roster[event.member_id];
+          }
+
+          if (timestampMs !== null) {
+            lastMemberAction[event.member_id] = {
+              eventType: event.event_type,
+              timestampMs: timestampMs
+            };
+          }
+
+          recent.unshift({
+            identifier: event.member_id,
+            memberType: memberType,
+            eventType: event.event_type,
+            method: event.method,
+            sessionName: event.session_name,
+            timestamp: event.timestamp
+          });
+
+          if (!event.synced) {
+            unsynced.push(event);
+          }
+        });
+
+        return {
+          roster: roster,
+          recentActivity: recent.slice(0, this.settings.recentLimit),
+          eventQueue: unsynced,
+          lastMemberAction: lastMemberAction
+        };
+      },
+
+      renderRoster() {
+        el.rosterList.innerHTML = "";
+        const rosterEntries = Object.values(this.roster).sort((a, b) => {
+          return (this.parseTimestampMs(b.signedInAt) || 0) - (this.parseTimestampMs(a.signedInAt) || 0);
+        });
+        el.rosterCount.textContent = `${rosterEntries.length} ${rosterEntries.length === 1 ? "member" : "members"}`;
+
+        if (!rosterEntries.length) {
+          el.rosterList.appendChild(el.rosterEmpty);
+          return;
+        }
+
+        rosterEntries.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "roster-item";
+          const left = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "roster-name";
+          name.textContent = entry.memberId;
+          const meta = document.createElement("div");
+          meta.className = "roster-meta";
+          meta.textContent = `${entry.memberType} • Signed in at ${this.formatTimestamp(entry.signedInAt)}`;
+          const right = document.createElement("div");
+          right.className = "roster-meta";
+          right.textContent = this.currentSession ? this.currentSession.sessionName : "";
+          left.appendChild(name);
+          left.appendChild(meta);
+          item.appendChild(left);
+          item.appendChild(right);
+          el.rosterList.appendChild(item);
+        });
+      },
+
+      renderRecentActivity() {
+        el.recentList.innerHTML = "";
+        if (!this.recentActivity.length) {
+          el.recentList.appendChild(el.recentEmpty);
+          return;
+        }
+
+        this.recentActivity.forEach((entry) => {
+          const item = document.createElement("li");
+          item.className = "history-item";
+          const left = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "history-name";
+          name.textContent = entry.identifier;
+          const meta = document.createElement("div");
+          meta.className = "history-meta";
+          meta.textContent = `${entry.memberType} • ${this.eventTypeLabel(entry.eventType)} • ${entry.sessionName}`;
+          const right = document.createElement("div");
+          right.className = "history-meta";
+          right.textContent = this.formatTimestamp(entry.timestamp);
+          left.appendChild(name);
+          left.appendChild(meta);
+          item.appendChild(left);
+          item.appendChild(right);
+          el.recentList.appendChild(item);
+        });
+      },
+
+      renderSyncStatus() {
+        el.endSessionBtn.disabled = !this.unlocked || !this.hasSignedInMembers();
+        if (!this.currentSession) {
+          this.setSyncNote("No active session to sync.", "");
+          return;
+        }
+        if (this.eventQueue.length) {
+          this.setSyncNote(`${this.eventQueue.length} event${this.eventQueue.length === 1 ? "" : "s"} waiting to sync.`, "error");
+          return;
+        }
+        this.setSyncNote("All local session changes are synced.", "success");
+      },
+
+      fallbackAttendanceLabel() {
+        const hours = Number(this.settings.standardizedFallbackAttendanceHours) || 1;
+        return `${hours}-hour fallback`;
+      },
+
+      buildSessionKey(session, sessionDate) {
+        return [this.projectName, sessionDate, session.sessionKey || session.sessionName].join("|");
+      },
+
+      sessionStorageKey(sessionKey) {
+        return `${CONFIG.storagePrefix}:session:${sessionKey}`;
+      },
+
+      lastInfoStorageKey() {
+        return `${CONFIG.storagePrefix}:last-known-session`;
+      },
+
+      sessionRetentionMs() {
+        return CONFIG.localRetentionDays * 24 * 60 * 60 * 1000;
+      },
+
+      cleanupExpiredSessionState() {
+        const cutoffMs = Date.now() - this.sessionRetentionMs();
+        const sessionPrefix = `${CONFIG.storagePrefix}:session:`;
+
+        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+          const key = localStorage.key(index);
+          if (!key || (key !== this.lastInfoStorageKey() && key.indexOf(sessionPrefix) !== 0)) {
+            continue;
+          }
+
+          const payload = this.loadStoredJson(key);
+          const storedMs = this.sessionStateTimestampMs(payload);
+          if (storedMs === null || storedMs < cutoffMs) {
+            localStorage.removeItem(key);
+          }
+        }
+      },
+
+      loadStoredJson(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : null;
+        } catch (_error) {
+          return null;
+        }
+      },
+
+      sessionStateTimestampMs(payload) {
+        if (!payload || typeof payload !== "object") {
+          return null;
+        }
+
+        const savedAtMs = this.parseTimestampMs(payload.savedAt);
+        if (savedAtMs !== null) {
+          return savedAtMs;
+        }
+
+        if (payload.sessionDate) {
+          const sessionDateMs = this.parseTimestampMs(`${payload.sessionDate}T00:00:00`);
+          if (sessionDateMs !== null) {
+            return sessionDateMs;
+          }
+        }
+
+        return null;
+      },
+
+      loadSessionState(sessionKey) {
+        if (!sessionKey) {
+          return null;
+        }
+
+        return this.loadStoredJson(this.sessionStorageKey(sessionKey));
+      },
+
+      clearPersistedSessionState(sessionKey = this.sessionKey) {
+        if (!sessionKey) {
+          return;
+        }
+        localStorage.removeItem(this.sessionStorageKey(sessionKey));
+      },
+
+      finalizeSessionClearIfReady() {
+        if (!this.pendingSessionClear || this.eventQueue.length) {
+          return;
+        }
+        this.clearPersistedSessionState();
+        this.pendingSessionClear = false;
+      },
+
+      persistSessionState() {
+        if (!this.sessionKey) {
+          return;
+        }
+
+        localStorage.setItem(this.sessionStorageKey(this.sessionKey), JSON.stringify({
+          sessionKey: this.sessionKey,
+          projectName: this.projectName,
+          sessionDate: this.sessionDate,
+          currentSession: this.currentSession,
+          roster: this.roster,
+          eventQueue: this.eventQueue,
+          recentActivity: this.recentActivity,
+          pendingSessionClear: this.pendingSessionClear,
+          savedAt: new Date().toISOString(),
+          lastKnownSessionInfo: {
+            currentSessionOpen: this.currentSessionOpen,
+            nextSession: this.nextSession,
+            savedAt: new Date().toISOString()
+          }
+        }));
+      },
+
+      persistLastKnownSessionInfo() {
+        localStorage.setItem(this.lastInfoStorageKey(), JSON.stringify({
+          projectName: this.projectName,
+          sessionDate: this.sessionDate,
+          savedAt: new Date().toISOString(),
+          sessionStatus: {
+            isOpen: this.currentSessionOpen,
+            currentSession: this.currentSession,
+            nextSession: this.nextSession
+          }
+        }));
+      },
+
+      loadDeviceId() {
+        const key = `${CONFIG.storagePrefix}:device-id`;
+        let deviceId = localStorage.getItem(key);
+        if (!deviceId) {
+          deviceId = window.crypto && window.crypto.randomUUID
+            ? window.crypto.randomUUID()
+            : `device_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+          localStorage.setItem(key, deviceId);
+        }
+        return deviceId;
+      },
+
+      todayDateText() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      },
+
+      buildEvent(member, method) {
+        if (!this.currentSessionOpen || !this.currentSession) {
+          throw new Error(this.nextSession
+            ? `No session is open. Next session: ${this.sessionSummary(this.nextSession)}`
+            : "No session is currently open.");
+        }
+
+        const now = new Date();
+        const activeMember = this.roster[member.identifier];
+        const eventType = activeMember ? "sign_out" : "sign_in";
+        const lastAction = this.lastMemberAction[member.identifier];
+
+        if (activeMember && lastAction && now.getTime() - lastAction.timestampMs < this.settings.duplicateCooldownMs) {
+          return {
+            blocked: true,
+            message: `${member.memberType} ${member.identifier} is still signed in. Wait a few seconds before signing out.`
+          };
+        }
+
+        return {
+          blocked: false,
+          event: {
+            event_id: `${this.deviceId}_${now.getTime()}_${member.identifier}`,
+            member_id: member.identifier,
+            member_type: member.memberType,
+            project_name: this.projectName,
+            session_name: this.currentSession.sessionName,
+            session_key: this.currentSession.sessionKey,
+            session_times: this.currentSession.sessionTimes,
+            day: this.currentSession.day,
+            event_type: eventType,
+            method: method,
+            timestamp: now.toISOString(),
+            device_id: this.deviceId,
+            synced: false
+          }
+        };
+      },
+
+      buildForcedSignOutEvent(entry, timestamp) {
+        return {
+          event_id: `${this.deviceId}_${timestamp.getTime()}_${entry.memberId}_${FORCED_SIGN_OUT_METHOD}`,
+          member_id: entry.memberId,
+          member_type: entry.memberType,
+          project_name: this.projectName,
+          session_name: this.currentSession.sessionName,
+          session_key: this.currentSession.sessionKey,
+          session_times: this.currentSession.sessionTimes,
+          day: this.currentSession.day,
+          event_type: "sign_out",
+          method: FORCED_SIGN_OUT_METHOD,
+          timestamp: timestamp.toISOString(),
+          device_id: this.deviceId,
+          synced: false
+        };
+      },
+
+      applyLocalEvent(event) {
+        if (event.event_type === "sign_in") {
+          this.roster[event.member_id] = {
+            memberId: event.member_id,
+            memberType: event.member_type,
+            signedInAt: event.timestamp,
+            method: event.method
+          };
+        } else {
+          delete this.roster[event.member_id];
+        }
+
+        this.recentActivity.unshift({
+          identifier: event.member_id,
+          memberType: event.member_type,
+          eventType: event.event_type,
+          method: event.method,
+          sessionName: event.session_name,
+          timestamp: event.timestamp
+        });
+        this.recentActivity = this.recentActivity.slice(0, this.settings.recentLimit);
+        this.lastMemberAction[event.member_id] = {
+          eventType: event.event_type,
+          timestampMs: this.parseTimestampMs(event.timestamp) || Date.now()
+        };
+        this.eventQueue.push(event);
+        this.persistSessionState();
+        this.renderRoster();
+        this.renderRecentActivity();
+        this.renderSyncStatus();
+      },
+
+      async endSessionSignOutAll() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+
+        if (!this.currentSession || !this.hasSignedInMembers()) {
+          this.setStatus("No members signed in", "There is nobody to sign out.", "error");
+          return;
+        }
+
+        const rosterEntries = Object.values(this.roster);
+        rosterEntries.forEach((entry, index) => {
+          const now = new Date(Date.now() + index);
+          this.applyLocalEvent(this.buildForcedSignOutEvent(entry, now));
+        });
+        this.pendingSessionClear = true;
+        this.persistSessionState();
+
+        this.setStatus(
+          "Session ended",
+          `${rosterEntries.length} ${rosterEntries.length === 1 ? "member was" : "members were"} signed out with the ${this.fallbackAttendanceLabel()}.`,
+          "success"
+        );
+        this.scheduleSync(50);
+      },
+
+      scheduleSync(delayMs = 0) {
+        if (this.syncTimer) {
+          clearTimeout(this.syncTimer);
+        }
+        this.syncTimer = window.setTimeout(() => this.flushSyncQueue(), delayMs);
+      },
+
+      async flushSyncQueue() {
+        if (this.syncInFlight || !this.unlocked || !this.eventQueue.length) {
+          return;
+        }
+
+        this.syncInFlight = true;
+        const batch = this.eventQueue.slice(0, this.settings.syncBatchSize);
+
+        try {
+          const result = await this.request({
+            action: "syncEvents",
+            events: JSON.stringify(batch)
+          });
+
+          if (!result.success) {
+            throw new Error(result.message || "Event sync failed.");
+          }
+
+          const syncedIds = new Set(result.syncedEventIds || []);
+          const rejectedIds = new Set(result.rejectedEventIds || []);
+          this.eventQueue = this.eventQueue.filter((event) => !syncedIds.has(event.event_id) && !rejectedIds.has(event.event_id));
+          this.persistSessionState();
+          this.finalizeSessionClearIfReady();
+          this.renderSyncStatus();
+
+          if (rejectedIds.size) {
+            this.setStatus(
+              "Session finalized",
+              "Some queued events were ignored because that session has already been finalized.",
+              "error"
+            );
+          }
+
+          if (this.eventQueue.length) {
+            this.scheduleSync(100);
+          }
+        } catch (_error) {
+          this.renderSyncStatus();
+          this.scheduleSync(CONFIG.syncRetryMs);
+        } finally {
+          this.syncInFlight = false;
+        }
+      },
+
+      async startScanner() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+        if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+          this.setStatus("Camera unavailable", "Camera access requires HTTPS on this browser. Use the hosted page, manual entry, or a USB barcode scanner.", "error");
+          return;
+        }
+        if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
+          this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
+          return;
+        }
+
+        const startToken = ++this.scannerStartToken;
+        try {
+          await this.ensureScannerLibrary();
+          if (!this.html5QrCode) {
+            this.html5QrCode = new Html5Qrcode("reader");
+          }
+
+          await this.stopScanner(true);
+          await this.refreshCameraDevices();
+          const cameraOptions = this.getCameraOptions();
+          if (!cameraOptions.length) {
+            throw new Error("No camera could be started.");
+          }
+
+          if (this.currentCameraIndex >= cameraOptions.length) {
+            this.currentCameraIndex = 0;
+          }
+
+          let lastError = null;
+          for (let offset = 0; offset < cameraOptions.length; offset += 1) {
+            const index = (this.currentCameraIndex + offset) % cameraOptions.length;
+            const cameraOption = cameraOptions[index];
+            const profiles = this.scannerProfiles();
+
+            for (let profileIndex = 0; profileIndex < profiles.length; profileIndex += 1) {
+              try {
+                await this.html5QrCode.start(
+                  cameraOption,
+                  profiles[profileIndex],
+                  (decodedText) => this.handleScan(decodedText),
+                  () => {}
+                );
+                this.currentCameraIndex = index;
+                lastError = null;
+                break;
+              } catch (error) {
+                lastError = error;
+              }
+            }
+
+            if (!lastError) {
+              break;
+            }
+          }
+
+          if (lastError) {
+            throw lastError;
+          }
+
+          if (startToken !== this.scannerStartToken) {
+            await this.stopScanner(true);
+            return;
+          }
+
+          this.scanning = true;
+          this.updateFlipButton();
+          this.setStatus(
+            "Scanner ready",
+            this.currentSession ? this.sessionSummary(this.currentSession) : "Point the camera at the member barcode."
+          );
+        } catch (error) {
+          await this.stopScanner(true);
+          this.setStatus(
+            "Camera unavailable",
+            `Could not start camera: ${error.message}. USB barcode scanner input and manual entry are still available.`,
+            "error"
+          );
+        }
+      },
+
+      async stopScanner(silent = false) {
+        this.scanning = false;
+        if (this.html5QrCode) {
+          try {
+            await this.html5QrCode.stop();
+          } catch (_error) {
+            // Ignore stop failures if the camera was not running.
+          }
+        }
+        el.reader.innerHTML = "";
+        this.updateFlipButton();
+        if (!silent) {
+          this.setStatus("Camera stopped", "Manual entry is still available.");
+        }
+      },
+
+      async switchCamera() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+
+        await this.refreshCameraDevices();
+        const cameraOptions = this.getCameraOptions();
+        if (cameraOptions.length <= 1) {
+          this.setStatus("Single camera only", "No alternative camera input is available on this device.", "error");
+          return;
+        }
+
+        this.currentCameraIndex = (this.currentCameraIndex + 1) % cameraOptions.length;
+        if (this.scanning) {
+          await this.startScanner();
+        } else {
+          this.setStatus("Camera changed", "Press Start Camera to use the selected camera.", "");
+        }
+      },
+
+      async handleScan(rawValue) {
+        const value = String(rawValue || "").trim();
+        if (!value) {
+          return;
+        }
+
+        const now = Date.now();
+        if (value === this.lastScannedValue && now - this.lastScannedTime < this.settings.duplicateCooldownMs) {
+          return;
+        }
+
+        this.lastScannedValue = value;
+        this.lastScannedTime = now;
+        await this.processScan(value, "barcode");
+      },
+
+      async processScan(rawValue, method) {
+        try {
+          const normalized = this.normalize(rawValue);
+          const decision = this.buildEvent(normalized, method);
+
+          if (decision.blocked) {
+            this.setStatus("Cooldown active", decision.message, "error");
+            return;
+          }
+
+          this.applyLocalEvent(decision.event);
+          this.setStatus(
+            this.eventTypeLabel(decision.event.event_type),
+            `${normalized.memberType} ${normalized.identifier} • ${this.currentSession.sessionName} • Saved locally and syncing in background.`,
+            decision.event.event_type === "sign_out" ? "signout" : "success"
+          );
+          if (method === "barcode") {
+            this.flashScannerSuccess();
+            this.playSuccessTone();
+          }
+          this.scheduleSync(50);
+          return true;
+        } catch (error) {
+          this.setStatus("Scan failed", error.message, "error");
+          return false;
+        }
+      },
+
+      isMobileDevice() {
+        return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
+      },
+
+      focusInput() {
+        if (!this.unlocked || el.studentInput.disabled) {
+          return;
+        }
+        el.studentInput.focus({ preventScroll: true });
+      },
+
+      clearFocusReturnTimer() {
+        if (this.focusReturnTimer) {
+          clearTimeout(this.focusReturnTimer);
+          this.focusReturnTimer = null;
+        }
+      },
+
+      shouldRefocusStudentInput() {
+        if (!this.unlocked || el.studentInput.disabled) {
+          return false;
+        }
+
+        const activeElement = document.activeElement;
+        if (!activeElement || activeElement === el.studentInput) {
+          return false;
+        }
+
+        const tagName = activeElement.tagName ? activeElement.tagName.toLowerCase() : "";
+        if (activeElement === el.passwordInput || tagName === "textarea" || tagName === "select") {
+          return false;
+        }
+        if (tagName === "input" && activeElement !== el.studentInput) {
+          return false;
+        }
+        if (activeElement.isContentEditable) {
+          return false;
+        }
+
+        return true;
+      },
+
+      scheduleInputRefocus() {
+        this.clearFocusReturnTimer();
+        this.focusReturnTimer = window.setTimeout(() => {
+          this.focusReturnTimer = null;
+          if (this.shouldRefocusStudentInput()) {
+            this.focusInput();
+          }
+        }, CONFIG.inputRefocusDelayMs);
+      },
+
+      handleKeyboardScanner(event) {
+        if (!this.unlocked || event.ctrlKey || event.metaKey || event.altKey) {
+          return;
+        }
+
+        if (event.key === "Enter") {
+          const value = this.keyboardBuffer.trim();
+          this.clearKeyboardBuffer();
+          if (value) {
+            this.processScan(value, "barcode");
+            event.preventDefault();
+          }
+          return;
+        }
+
+        if (event.key.length !== 1) {
+          return;
+        }
+
+        const tagName = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : "";
+        if (tagName === "input" || tagName === "textarea") {
+          return;
+        }
+
+        this.keyboardBuffer += event.key;
+        if (this.keyboardTimer) {
+          clearTimeout(this.keyboardTimer);
+        }
+        this.keyboardTimer = window.setTimeout(() => this.clearKeyboardBuffer(), 250);
+      },
+
+      clearKeyboardBuffer() {
+        this.keyboardBuffer = "";
+        if (this.keyboardTimer) {
+          clearTimeout(this.keyboardTimer);
+          this.keyboardTimer = null;
+        }
+      },
+
+      resetInputBurstDetection() {
+        this.inputBurstIsScanner = false;
+        this.inputBurstLength = 0;
+        this.inputBurstLastKeyTime = 0;
+        if (this.inputBurstTimer) {
+          clearTimeout(this.inputBurstTimer);
+          this.inputBurstTimer = null;
+        }
+      },
+
+      handleStudentInputKeydown(event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this.resetInputBurstDetection();
+          this.submitManual();
+          return;
+        }
+
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+          this.resetInputBurstDetection();
+          return;
+        }
+
+        if (event.key.length !== 1) {
+          if (event.key === "Backspace" || event.key === "Delete") {
+            this.resetInputBurstDetection();
+          }
+          return;
+        }
+
+        const now = Date.now();
+        if (!this.inputBurstLength) {
+          this.inputBurstIsScanner = true;
+          this.inputBurstLength = 1;
+        } else {
+          if (now - this.inputBurstLastKeyTime > CONFIG.laserScannerMaxInterKeyMs) {
+            this.inputBurstIsScanner = false;
+          }
+          this.inputBurstLength += 1;
+        }
+        this.inputBurstLastKeyTime = now;
+
+        if (this.inputBurstTimer) {
+          clearTimeout(this.inputBurstTimer);
+        }
+        this.inputBurstTimer = window.setTimeout(() => this.maybeAutoSubmitStudentInput(), CONFIG.laserScannerSubmitDelayMs);
+      },
+
+      async maybeAutoSubmitStudentInput() {
+        this.inputBurstTimer = null;
+        const value = el.studentInput.value.trim();
+        const shouldAutoSubmit = this.inputBurstIsScanner &&
+          this.inputBurstLength >= CONFIG.laserScannerMinimumLength &&
+          value.length >= CONFIG.laserScannerMinimumLength;
+
+        this.resetInputBurstDetection();
+        if (!shouldAutoSubmit || !value) {
+          return;
+        }
+
+        const processed = await this.processScan(value, "barcode");
+        if (processed) {
+          el.studentInput.value = "";
+          this.focusInput();
+        }
+      },
+
+      submitManual() {
+        if (!this.unlocked) {
+          this.setStatus("Password required", "Enter the attendance password first.", "error");
+          return;
+        }
+
+        const value = el.studentInput.value.trim();
+        if (!value) {
+          this.setStatus("No value entered", "Please enter a student number or barcode.", "error");
+          return;
+        }
+
+        this.processScan(value, "manual");
+        el.studentInput.value = "";
+        this.resetInputBurstDetection();
+        this.focusInput();
+      },
+
+      async unlock() {
+        const password = el.passwordInput.value;
+        if (!password) {
+          this.failUnlock("Enter the attendance password first.");
+          return;
+        }
+
+        try {
+          this.password = password;
+          const result = await this.request({ action: "bootstrap" }, false);
+          if (!result.success) {
+            throw new Error(result.message || "The password is incorrect.");
+          }
+
+          this.setUnlocked(true);
+          this.setAuthMessage("Access granted. Session state loaded.", "success");
+          this.applyBootstrap(result);
+          this.startPolling();
+          await this.refreshCameraDevices();
+          el.passwordInput.value = "";
+          this.deviceId = this.deviceId || this.loadDeviceId();
+          window.setTimeout(() => {
+            if (this.unlocked) {
+              el.accessCard.classList.add("hidden");
+            }
+          }, 1200);
+          this.focusInput();
+          this.flushSyncQueue();
+          if (this.currentSession) {
+            await this.startScanner();
+          }
+        } catch (error) {
+          this.failUnlock(error.message || "The password is incorrect.");
+        }
+      },
+
+      failUnlock(message) {
+        this.password = "";
+        this.setUnlocked(false);
+        this.setAuthMessage(message, "error");
+        this.setStatus("Access denied", message, "error");
+        el.passwordInput.select();
+      },
+
+      bind() {
+        el.startBtn.addEventListener("click", () => this.startScanner());
+        el.flipBtn.addEventListener("click", () => this.switchCamera());
+        el.stopBtn.addEventListener("click", () => this.stopScanner());
+        el.manualBtn.addEventListener("click", () => this.submitManual());
+        el.endSessionBtn.addEventListener("click", () => this.endSessionSignOutAll());
+        el.unlockBtn.addEventListener("click", () => this.unlock());
+        el.studentInput.addEventListener("keydown", (event) => this.handleStudentInputKeydown(event));
+        el.studentInput.addEventListener("focus", () => this.clearFocusReturnTimer());
+        el.studentInput.addEventListener("blur", () => this.scheduleInputRefocus());
+        el.passwordInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            this.unlock();
+          }
+        });
+        document.addEventListener("keydown", (event) => this.handleKeyboardScanner(event));
+      },
+
+      start() {
+        this.deviceId = this.loadDeviceId();
+        this.cleanupExpiredSessionState();
+        this.ensureScannerLibrary().catch(() => {});
+        this.setUnlocked(false);
+        this.setAuthMessage("Enter the attendance password before scanning or signing members in or out.");
+        this.setSessionInfo("Locked", "Enter the attendance password to load session details.");
+        this.setSyncNote("Session state will appear here after unlock.");
+        this.updateFlipButton();
+        this.renderRoster();
+        this.renderRecentActivity();
+        this.bind();
+        el.passwordInput.focus();
+      }
+    };
+
+    app.start();
+  </script>
+</body>
+</html>
