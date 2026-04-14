@@ -71,7 +71,7 @@
     }
 
     .page-layout {
-      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr);
+      grid-template-columns: minmax(0, 1.1fr) minmax(420px, 0.95fr);
     }
 
     .status-layout {
@@ -79,75 +79,11 @@
     }
 
     .scanner-layout {
-      grid-template-columns: minmax(0, 1.9fr) minmax(320px, 1fr);
+      grid-template-columns: 1fr;
     }
 
     .sidebar-layout {
       gap: 14px;
-    }
-
-    .reader-shell {
-      position: relative;
-      width: 100%;
-      height: 240px;
-      background: black;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      overflow: hidden;
-      isolation: isolate;
-    }
-
-    #reader {
-      width: 100%;
-      height: 100%;
-      background: black;
-    }
-
-    #reader video,
-    #reader canvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    #reader video {
-      z-index: 0;
-    }
-
-    #reader canvas {
-      z-index: 1;
-    }
-
-    .scan-window {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: min(84%, 420px);
-      height: min(42%, 180px);
-      transform: translate(-50%, -50%);
-      border-radius: 16px;
-      border: 2px solid rgba(255, 255, 255, 0.92);
-      box-shadow:
-        0 0 0 9999px rgba(0, 0, 0, 0.28),
-        0 0 0 2px rgba(255, 255, 255, 0.14) inset;
-      z-index: 3;
-      pointer-events: none;
-      transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
-    }
-
-    .scan-window.hidden {
-      display: none;
-    }
-
-    .scan-window.flash-success {
-      border-color: rgba(34, 197, 94, 0.98);
-      background: rgba(34, 197, 94, 0.16);
-      box-shadow:
-        0 0 0 9999px rgba(16, 185, 129, 0.12),
-        0 0 0 2px rgba(34, 197, 94, 0.35) inset,
-        0 0 0 4px rgba(34, 197, 94, 0.2);
     }
 
     input, button {
@@ -205,7 +141,6 @@
     }
 
     .manual-panel h2,
-    .scan-panel h2,
     .session-panel h2,
     .status-panel h2,
     .roster-panel h2,
@@ -225,8 +160,9 @@
     }
 
     .status-banner {
-      min-height: 76px;
+      min-height: 112px;
       align-content: center;
+      transition: box-shadow 160ms ease, transform 160ms ease;
     }
 
     .status-banner.success,
@@ -248,6 +184,16 @@
       color: var(--error-text);
     }
 
+    .status-banner.flash-success {
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18);
+      transform: scale(1.01);
+    }
+
+    .status-banner.flash-signout {
+      box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.18);
+      transform: scale(1.01);
+    }
+
     .session-banner.closed {
       background: var(--info-bg);
       border-color: var(--info-border);
@@ -262,14 +208,14 @@
     }
 
     .status-message {
-      font-size: 20px;
+      font-size: 30px;
       line-height: 1.2;
       font-weight: 800;
       color: inherit;
     }
 
     .status-detail {
-      font-size: 13px;
+      font-size: 15px;
       color: inherit;
       opacity: 0.9;
     }
@@ -288,7 +234,7 @@
       display: flex;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 12px;
+      padding: 14px 16px;
       border-radius: 12px;
       background: #f8fafc;
       border: 1px solid var(--border);
@@ -298,6 +244,11 @@
     .roster-name {
       font-weight: 700;
       color: var(--text);
+    }
+
+    .roster-name {
+      font-size: 24px;
+      letter-spacing: 0.02em;
     }
 
     .history-meta,
@@ -371,6 +322,29 @@
       min-height: 320px;
     }
 
+    .roster-panel {
+      min-height: 520px;
+    }
+
+    .entry-input {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 18px 20px;
+    }
+
+    .entry-help {
+      display: grid;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .entry-help strong {
+      color: var(--text);
+    }
+
     @media (max-width: 980px) {
       body {
         padding: 16px;
@@ -407,9 +381,9 @@
         <div class="card status-panel">
           <h2>Sign-In Status</h2>
           <div id="statusBanner" class="status-banner">
-            <div class="status-label">Scanner status</div>
+            <div class="status-label">Attendance status</div>
             <div id="statusMessage" class="status-message">Ready.</div>
-            <div id="statusDetail" class="status-detail">Waiting for the next sign-in.</div>
+            <div id="statusDetail" class="status-detail">Waiting for the next scan.</div>
           </div>
         </div>
 
@@ -425,26 +399,15 @@
 
       <div class="scanner-layout">
         <div class="card scan-panel">
-          <h2>Student Card Barcode Scanner</h2>
-          <div class="reader-shell">
-            <div id="reader"></div>
-            <div id="scanWindow" class="scan-window"></div>
+          <h2>USB Barcode Scanner</h2>
+          <div class="entry-help">
+            <strong>Scan a student card with the USB barcode scanner.</strong>
+            <div>Keep the cursor in the input box below. The scanner will type the barcode and submit it automatically.</div>
           </div>
+          <input id="studentNumber" class="entry-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Scan card or enter student ID">
           <div class="button-row">
-            <button id="startBtn">Start Camera</button>
-            <button id="flipBtn" class="secondary">Flip Camera</button>
-            <button id="stopBtn" class="secondary">Stop Camera</button>
+            <button id="manualBtn">Submit Entry</button>
           </div>
-          <div class="muted">Best used in Chrome on a phone or laptop.</div>
-        </div>
-
-        <div class="card manual-panel">
-          <div>
-            <h2>Manual Entry</h2>
-            <p class="muted">Use this if the barcode cannot be read.</p>
-          </div>
-          <input id="studentNumber" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Enter student ID">
-          <button id="manualBtn">Process Scan</button>
         </div>
       </div>
     </div>
@@ -482,11 +445,7 @@
       inputRefocusDelayMs: 150,
       laserScannerMaxInterKeyMs: 45,
       laserScannerSubmitDelayMs: 60,
-      laserScannerMinimumLength: 8,
-      scannerLibraryUrls: [
-        "https://unpkg.com/html5-qrcode",
-        "https://cdn.jsdelivr.net/npm/html5-qrcode"
-      ]
+      laserScannerMinimumLength: 8
     };
     const FORCED_SIGN_OUT_METHOD = "session_end";
 
@@ -496,8 +455,6 @@
       passwordInput: document.getElementById("passwordInput"),
       unlockBtn: document.getElementById("unlockBtn"),
       authMessage: document.getElementById("authMessage"),
-      reader: document.getElementById("reader"),
-      scanWindow: document.getElementById("scanWindow"),
       statusBanner: document.getElementById("statusBanner"),
       statusMessage: document.getElementById("statusMessage"),
       statusDetail: document.getElementById("statusDetail"),
@@ -505,9 +462,6 @@
       sessionMessage: document.getElementById("sessionMessage"),
       sessionDetail: document.getElementById("sessionDetail"),
       studentInput: document.getElementById("studentNumber"),
-      startBtn: document.getElementById("startBtn"),
-      flipBtn: document.getElementById("flipBtn"),
-      stopBtn: document.getElementById("stopBtn"),
       manualBtn: document.getElementById("manualBtn"),
       endSessionBtn: document.getElementById("endSessionBtn"),
       rosterCount: document.getElementById("rosterCount"),
@@ -525,8 +479,6 @@
         recentLimit: 12,
         syncBatchSize: 10
       },
-      html5QrCode: null,
-      scanning: false,
       unlocked: false,
       password: "",
       projectName: "Project",
@@ -552,68 +504,10 @@
       pollTimer: null,
       pollInFlight: false,
       deviceId: "",
-      cameraDevices: [],
-      currentCameraIndex: 0,
       focusReturnTimer: null,
-      scannerStartToken: 0,
       successFlashTimer: null,
-      successResetTimer: null,
       audioContext: null,
-      scannerLibraryPromise: null,
       pendingSessionClear: false,
-
-      async ensureScannerLibrary() {
-        if (window.Html5Qrcode) {
-          return;
-        }
-        if (this.scannerLibraryPromise) {
-          return this.scannerLibraryPromise;
-        }
-
-        this.scannerLibraryPromise = (async () => {
-          for (let index = 0; index < CONFIG.scannerLibraryUrls.length; index += 1) {
-            try {
-              await this.loadScript(CONFIG.scannerLibraryUrls[index]);
-              if (window.Html5Qrcode) {
-                return;
-              }
-            } catch (_error) {
-              // Try the next CDN mirror.
-            }
-          }
-          throw new Error("Barcode scanner library could not be loaded.");
-        })();
-
-        try {
-          await this.scannerLibraryPromise;
-        } catch (error) {
-          this.scannerLibraryPromise = null;
-          throw error;
-        }
-      },
-
-      loadScript(src) {
-        return new Promise((resolve, reject) => {
-          const existing = document.querySelector(`script[data-src="${src}"]`);
-          if (existing) {
-            if (window.Html5Qrcode) {
-              resolve();
-              return;
-            }
-            existing.addEventListener("load", resolve, { once: true });
-            existing.addEventListener("error", reject, { once: true });
-            return;
-          }
-
-          const script = document.createElement("script");
-          script.src = src;
-          script.async = true;
-          script.dataset.src = src;
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error(`Failed to load ${src}`));
-          document.head.appendChild(script);
-        });
-      },
 
       setProjectName(projectName) {
         this.projectName = projectName || "Project";
@@ -625,13 +519,10 @@
         this.unlocked = unlocked;
         el.studentInput.disabled = !unlocked;
         el.manualBtn.disabled = !unlocked;
-        el.startBtn.disabled = !unlocked;
-        el.flipBtn.disabled = !unlocked;
         el.endSessionBtn.disabled = !unlocked;
         if (!unlocked) {
           this.clearFocusReturnTimer();
           this.resetInputBurstDetection();
-          this.stopScanner();
           this.stopPolling();
           el.accessCard.classList.remove("hidden");
         }
@@ -657,128 +548,6 @@
       setSyncNote(message, type = "") {
         el.syncNote.className = `sync-note ${type}`.trim();
         el.syncNote.textContent = message;
-      },
-
-      scoreCameraLabel(label) {
-        const text = String(label || "").toLowerCase();
-        if (!text) {
-          return 0;
-        }
-        if (/(back|rear|environment|world)/.test(text)) {
-          return 30;
-        }
-        if (/(front|user|facetime)/.test(text)) {
-          return 10;
-        }
-        if (/(virtual|obs|snap|epoccam|droidcam)/.test(text)) {
-          return -10;
-        }
-        if (/(hd|1080|4k|ultra)/.test(text)) {
-          return 5;
-        }
-        return 1;
-      },
-
-      async refreshCameraDevices() {
-        if (!window.Html5Qrcode || !window.Html5Qrcode.getCameras) {
-          this.cameraDevices = [];
-          this.currentCameraIndex = 0;
-          this.updateFlipButton();
-          return;
-        }
-
-        try {
-          this.cameraDevices = (await Html5Qrcode.getCameras()).sort((a, b) => {
-            return this.scoreCameraLabel(b.label) - this.scoreCameraLabel(a.label);
-          });
-        } catch (_error) {
-          this.cameraDevices = [];
-        }
-
-        if (this.currentCameraIndex >= this.getCameraOptions().length) {
-          this.currentCameraIndex = 0;
-        }
-        this.updateFlipButton();
-      },
-
-      getCameraOptions() {
-        if (this.cameraDevices.length) {
-          return this.cameraDevices.map((device) => ({ deviceId: { exact: device.id } }));
-        }
-
-        if (this.isMobileDevice()) {
-          return [
-            { facingMode: { exact: "environment" } },
-            { facingMode: "environment" },
-            { facingMode: "user" }
-          ];
-        }
-
-        return [
-          { facingMode: "environment" },
-          { facingMode: "user" }
-        ];
-      },
-
-      getPreferredFormats() {
-        const formats = window.Html5QrcodeSupportedFormats;
-        if (!formats) {
-          return [];
-        }
-
-        return [
-          formats.CODE_128,
-          formats.CODE_39,
-          formats.CODABAR,
-          formats.EAN_13,
-          formats.EAN_8
-        ].filter(Boolean);
-      },
-
-      buildQrbox() {
-        const readerWidth = el.reader.clientWidth || window.innerWidth || 480;
-        const width = Math.max(240, Math.min(Math.round(readerWidth * 0.82), 460));
-        const height = Math.max(110, Math.min(Math.round(width * 0.42), 190));
-        return { width, height };
-      },
-
-      scannerProfiles() {
-        const qrbox = this.buildQrbox();
-        const formatsToSupport = this.getPreferredFormats();
-        return [
-          {
-            fps: 12,
-            aspectRatio: 1.7777778,
-            qrbox: qrbox,
-            formatsToSupport: formatsToSupport,
-            videoConstraints: {
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              frameRate: { ideal: 24, max: 30 }
-            }
-          },
-          {
-            fps: 10,
-            aspectRatio: 1.7777778,
-            qrbox: qrbox,
-            formatsToSupport: formatsToSupport,
-            videoConstraints: {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 20, max: 24 }
-            }
-          },
-          {
-            fps: 8,
-            qrbox: qrbox,
-            formatsToSupport: formatsToSupport
-          }
-        ];
-      },
-
-      updateFlipButton() {
-        const options = this.getCameraOptions();
-        el.flipBtn.disabled = !this.unlocked || (this.cameraDevices.length > 0 && options.length <= 1);
       },
 
       ensureAudioContext() {
@@ -814,25 +583,17 @@
         oscillator.stop(context.currentTime + 0.2);
       },
 
-      flashScannerSuccess() {
-        el.scanWindow.classList.remove("flash-success");
-        void el.scanWindow.offsetWidth;
-        el.scanWindow.classList.add("flash-success");
-
+      flashStatusFeedback(type) {
+        const flashClass = type === "sign_out" ? "flash-signout" : "flash-success";
+        el.statusBanner.classList.remove("flash-success", "flash-signout");
+        void el.statusBanner.offsetWidth;
+        el.statusBanner.classList.add(flashClass);
         if (this.successFlashTimer) {
           clearTimeout(this.successFlashTimer);
         }
-        if (this.successResetTimer) {
-          clearTimeout(this.successResetTimer);
-        }
-
         this.successFlashTimer = window.setTimeout(() => {
-          el.scanWindow.classList.remove("flash-success");
+          el.statusBanner.classList.remove("flash-success", "flash-signout");
         }, 220);
-
-        this.successResetTimer = window.setTimeout(() => {
-          el.scanWindow.classList.remove("flash-success");
-        }, 450);
       },
 
       hasSignedInMembers() {
@@ -995,7 +756,7 @@
         this.renderRoster();
         this.renderRecentActivity();
         this.renderSyncStatus();
-        this.setStatus("Ready", this.sessionSummary(this.currentSession));
+        this.setStatus("Ready to scan", this.sessionSummary(this.currentSession));
       },
 
       async pollBackendState() {
@@ -1483,127 +1244,6 @@
         }
       },
 
-      async startScanner() {
-        if (!this.unlocked) {
-          this.setStatus("Password required", "Enter the attendance password first.", "error");
-          return;
-        }
-        if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-          this.setStatus("Camera unavailable", "Camera access requires HTTPS on this browser. Use the hosted page, manual entry, or a USB barcode scanner.", "error");
-          return;
-        }
-        if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices)) {
-          this.setStatus("Camera unavailable", "Camera access is not supported in this browser.", "error");
-          return;
-        }
-
-        const startToken = ++this.scannerStartToken;
-        try {
-          await this.ensureScannerLibrary();
-          if (!this.html5QrCode) {
-            this.html5QrCode = new Html5Qrcode("reader");
-          }
-
-          await this.stopScanner(true);
-          await this.refreshCameraDevices();
-          const cameraOptions = this.getCameraOptions();
-          if (!cameraOptions.length) {
-            throw new Error("No camera could be started.");
-          }
-
-          if (this.currentCameraIndex >= cameraOptions.length) {
-            this.currentCameraIndex = 0;
-          }
-
-          let lastError = null;
-          for (let offset = 0; offset < cameraOptions.length; offset += 1) {
-            const index = (this.currentCameraIndex + offset) % cameraOptions.length;
-            const cameraOption = cameraOptions[index];
-            const profiles = this.scannerProfiles();
-
-            for (let profileIndex = 0; profileIndex < profiles.length; profileIndex += 1) {
-              try {
-                await this.html5QrCode.start(
-                  cameraOption,
-                  profiles[profileIndex],
-                  (decodedText) => this.handleScan(decodedText),
-                  () => {}
-                );
-                this.currentCameraIndex = index;
-                lastError = null;
-                break;
-              } catch (error) {
-                lastError = error;
-              }
-            }
-
-            if (!lastError) {
-              break;
-            }
-          }
-
-          if (lastError) {
-            throw lastError;
-          }
-
-          if (startToken !== this.scannerStartToken) {
-            await this.stopScanner(true);
-            return;
-          }
-
-          this.scanning = true;
-          this.updateFlipButton();
-          this.setStatus(
-            "Scanner ready",
-            this.currentSession ? this.sessionSummary(this.currentSession) : "Point the camera at the member barcode."
-          );
-        } catch (error) {
-          await this.stopScanner(true);
-          this.setStatus(
-            "Camera unavailable",
-            `Could not start camera: ${error.message}. USB barcode scanner input and manual entry are still available.`,
-            "error"
-          );
-        }
-      },
-
-      async stopScanner(silent = false) {
-        this.scanning = false;
-        if (this.html5QrCode) {
-          try {
-            await this.html5QrCode.stop();
-          } catch (_error) {
-            // Ignore stop failures if the camera was not running.
-          }
-        }
-        el.reader.innerHTML = "";
-        this.updateFlipButton();
-        if (!silent) {
-          this.setStatus("Camera stopped", "Manual entry is still available.");
-        }
-      },
-
-      async switchCamera() {
-        if (!this.unlocked) {
-          this.setStatus("Password required", "Enter the attendance password first.", "error");
-          return;
-        }
-
-        await this.refreshCameraDevices();
-        const cameraOptions = this.getCameraOptions();
-        if (cameraOptions.length <= 1) {
-          this.setStatus("Single camera only", "No alternative camera input is available on this device.", "error");
-          return;
-        }
-
-        this.currentCameraIndex = (this.currentCameraIndex + 1) % cameraOptions.length;
-        if (this.scanning) {
-          await this.startScanner();
-        } else {
-          this.setStatus("Camera changed", "Press Start Camera to use the selected camera.", "");
-        }
-      },
-
       async handleScan(rawValue) {
         const value = String(rawValue || "").trim();
         if (!value) {
@@ -1636,20 +1276,14 @@
             `${normalized.memberType} ${normalized.identifier} • ${this.currentSession.sessionName} • Saved locally and syncing in background.`,
             decision.event.event_type === "sign_out" ? "signout" : "success"
           );
-          if (method === "barcode") {
-            this.flashScannerSuccess();
-            this.playSuccessTone();
-          }
+          this.flashStatusFeedback(decision.event.event_type);
+          this.playSuccessTone();
           this.scheduleSync(50);
           return true;
         } catch (error) {
           this.setStatus("Scan failed", error.message, "error");
           return false;
         }
-      },
-
-      isMobileDevice() {
-        return /android|iphone|ipad|ipod/i.test(navigator.userAgent || "");
       },
 
       focusInput() {
@@ -1842,7 +1476,6 @@
           this.setAuthMessage("Access granted. Session state loaded.", "success");
           this.applyBootstrap(result);
           this.startPolling();
-          await this.refreshCameraDevices();
           el.passwordInput.value = "";
           this.deviceId = this.deviceId || this.loadDeviceId();
           window.setTimeout(() => {
@@ -1852,9 +1485,6 @@
           }, 1200);
           this.focusInput();
           this.flushSyncQueue();
-          if (this.currentSession) {
-            await this.startScanner();
-          }
         } catch (error) {
           this.failUnlock(error.message || "The password is incorrect.");
         }
@@ -1869,9 +1499,6 @@
       },
 
       bind() {
-        el.startBtn.addEventListener("click", () => this.startScanner());
-        el.flipBtn.addEventListener("click", () => this.switchCamera());
-        el.stopBtn.addEventListener("click", () => this.stopScanner());
         el.manualBtn.addEventListener("click", () => this.submitManual());
         el.endSessionBtn.addEventListener("click", () => this.endSessionSignOutAll());
         el.unlockBtn.addEventListener("click", () => this.unlock());
@@ -1889,12 +1516,10 @@
       start() {
         this.deviceId = this.loadDeviceId();
         this.cleanupExpiredSessionState();
-        this.ensureScannerLibrary().catch(() => {});
         this.setUnlocked(false);
         this.setAuthMessage("Enter the attendance password before scanning or signing members in or out.");
         this.setSessionInfo("Locked", "Enter the attendance password to load session details.");
         this.setSyncNote("Session state will appear here after unlock.");
-        this.updateFlipButton();
         this.renderRoster();
         this.renderRecentActivity();
         this.bind();
